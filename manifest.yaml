@@ -36,7 +36,7 @@ resource:
       size: 104857600
 plugins:
   tools:
-    - provider/skill_agent.yaml
+    - "provider/skill_agent.yaml"
 meta:
   version: 0.0.4
   arch:
