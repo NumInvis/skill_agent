@@ -68,6 +68,166 @@ def _format_skills_index(skills_index: dict) -> str:
     return "\n".join(lines)
 
 
+def _validate_skill_access(tool_name: str, arguments: dict, runtime: "_AgentRuntime") -> dict | None:
+    """检查技能访问前置条件，返回错误 dict 或 None 表示通过"""
+    if tool_name not in {"list_skill_files", "read_skill_file", "run_skill_command"}:
+        return None
+    skill_name = str(arguments.get("skill_name") or "").strip()
+    if not skill_name:
+        return None
+    if not runtime.has_skill_metadata(skill_name):
+        return {
+            "error": "skill_md_required",
+            "skill_name": skill_name,
+            "detail": "必须先调用 get_skill_metadata(skill_name) 读取 SKILL.md（说明书）后，才能继续调用该工具。",
+        }
+    if tool_name == "run_skill_command" and not runtime.has_listed_skill_files(skill_name):
+        return {
+            "error": "skill_files_listing_required",
+            "skill_name": skill_name,
+            "detail": "执行技能命令前，必须先调用 list_skill_files(skill_name) 查看技能包目录结构。",
+        }
+    return None
+
+
+def _skill_access_error_hint(tool_name: str, error: dict) -> str:
+    """根据技能访问错误生成用户提示"""
+    skill_name = error.get("skill_name", "")
+    if error.get("error") == "skill_md_required":
+        return f"你刚才尝试调用 `{tool_name}` 但尚未读取技能《{skill_name}》的 SKILL.md。请先调用 get_skill_metadata({skill_name!r})，再重试该工具调用。"
+    if error.get("error") == "skill_files_listing_required":
+        return f"你刚才尝试调用 `{tool_name}` 但尚未查看技能《{skill_name}》的目录结构。请先调用 list_skill_files({skill_name!r})，再重试该工具调用。"
+    return ""
+
+
+_TOOL_STATUS_MSG: dict[str, str] = {
+    "get_skill_metadata": "正在查看技能《{skill_name}》说明书…",
+    "list_skill_files": "正在查看技能《{skill_name}》文件结构…",
+    "read_skill_file": "正在读取技能《{skill_name}》文件：{relative_path}…",
+    "run_skill_command": "正在执行技能《{skill_name}》命令…",
+    "write_temp_file": "正在按说明书写入临时文件：{relative_path}…",
+    "read_temp_file": "正在读取临时文件：{relative_path}…",
+    "list_temp_files": "正在查看临时目录文件…",
+    "run_temp_command": "正在执行临时命令…",
+    "export_temp_file": "正在标记交付文件：{temp_relative_path}…",
+}
+
+
+def _get_tool_status_msg(tool_name: str, arguments: dict) -> str:
+    """生成工具执行状态消息"""
+    tpl = _TOOL_STATUS_MSG.get(tool_name)
+    if not tpl:
+        return ""
+    try:
+        return "✅" + tpl.format(**arguments)
+    except KeyError:
+        return "✅" + tpl
+
+
+def _execute_tool_call(
+    tool_name: str,
+    arguments: dict,
+    runtime: "_AgentRuntime",
+    *,
+    session_dir: str,
+    storage: Any,
+    resume_key: str,
+    query: str,
+    redact_fn: "Any",
+) -> tuple[dict, str | None, bool]:
+    """执行工具调用，返回 (result, forced_text, resume_saved)"""
+    forced_text = None
+    resume_saved = False
+
+    if tool_name == "get_skill_metadata":
+        return runtime.get_skill_metadata(str(arguments.get("skill_name") or "")), None, False
+    if tool_name == "list_skill_files":
+        return runtime.list_skill_files(
+            str(arguments.get("skill_name") or ""),
+            int(arguments.get("max_depth") or 2),
+        ), None, False
+    if tool_name == "read_skill_file":
+        return runtime.read_skill_file(
+            str(arguments.get("skill_name") or ""),
+            str(arguments.get("relative_path") or ""),
+            int(arguments.get("max_chars") or 12000),
+        ), None, False
+    if tool_name == "run_skill_command":
+        result = runtime.run_skill_command(
+            skill_name=str(arguments.get("skill_name") or ""),
+            command=arguments.get("command") if isinstance(arguments.get("command"), list) else [],
+            cwd_relative=str(arguments.get("cwd_relative")) if arguments.get("cwd_relative") else None,
+            auto_install=bool(arguments.get("auto_install") or False),
+        )
+        if isinstance(result, dict) and result.get("returncode") is not None and int(result.get("returncode") or 0) != 0:
+            stderr = str(result.get("stderr") or "").strip()
+            if stderr:
+                pass  # stderr 由调用方处理
+        if isinstance(result, dict) and result.get("error") == "no_executable_found":
+            skill = str(result.get("skill") or arguments.get("skill_name") or "")
+            module = str(result.get("module") or "")
+            forced_text = (
+                f'当前技能"{skill}"的说明文档要求生成文件，但技能包内未找到可执行入口（例如脚本或 Python 模块）。\n'
+                f'本次尝试的入口为 python -m {module}，但在技能目录中不存在，因此无法继续生成目标文件。\n\n'
+                '我已先按技能说明生成了可交付的中间产物（例如设计哲学 .md）。\n'
+                '你是否允许我在 temp 目录中自行创建可执行脚本，并在需要时安装依赖后，再尝试生成最终文件？'
+            )
+            from utils.skill_agent_storage import _storage_set_json
+            _storage_set_json(storage, resume_key, {
+                "pending": True,
+                "session_dir": session_dir,
+                "original_query": query,
+                "reason": "no_executable_found",
+                "skill": skill,
+                "module": module,
+                "created_at": int(time.time()),
+            })
+            resume_saved = True
+        return result, forced_text, resume_saved
+    if tool_name == "get_session_context":
+        return runtime.get_session_context(), None, False
+    if tool_name == "write_temp_file":
+        return runtime.write_temp_file(
+            str(arguments.get("relative_path") or ""),
+            str(arguments.get("content") or ""),
+        ), None, False
+    if tool_name == "read_temp_file":
+        return runtime.read_temp_file(
+            str(arguments.get("relative_path") or ""),
+            int(arguments.get("max_chars") or 12000),
+        ), None, False
+    if tool_name == "list_temp_files":
+        return runtime.list_temp_files(int(arguments.get("max_depth") or 4)), None, False
+    if tool_name == "run_temp_command":
+        return runtime.run_temp_command(
+            command=arguments.get("command") if isinstance(arguments.get("command"), list) else [],
+            cwd_relative=str(arguments.get("cwd_relative")) if arguments.get("cwd_relative") else None,
+            auto_install=bool(arguments.get("auto_install") or False),
+        ), None, False
+    if tool_name == "export_temp_file":
+        temp_rel = str(arguments.get("temp_relative_path") or "")
+        workspace_rel = str(arguments.get("workspace_relative_path") or "")
+        result = runtime.export_temp_file(
+            temp_relative_path=temp_rel,
+            workspace_relative_path=workspace_rel,
+            overwrite=bool(arguments.get("overwrite") or False),
+        )
+        return result, None, False
+    return {"error": f"unknown tool: {tool_name}"}, None, False
+
+
+def _extract_export_meta(result: dict, tool_name: str, arguments: dict) -> dict | None:
+    """从 export_temp_file 结果中提取元数据"""
+    if tool_name != "export_temp_file":
+        return None
+    temp_rel = str(arguments.get("temp_relative_path") or "")
+    workspace_rel = str(arguments.get("workspace_relative_path") or "")
+    out_name = os.path.basename(workspace_rel) if workspace_rel else ""
+    if isinstance(result, dict) and not result.get("error") and temp_rel and out_name:
+        return {"temp_rel": temp_rel, "filename": out_name, "mime_type": _guess_mime_type(out_name)}
+    return None
+
+
 class SkillAgentTool(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage]:
         model = tool_parameters.get("model")
@@ -422,7 +582,7 @@ class SkillAgentTool(Tool):
                 for i in range(0, len(tagged), step):
                     yield self.create_text_message(tagged[i : i + step])
                     streamed_any = True
-            
+
             def should_emit_user_text(text: str) -> bool:
                 if not text:
                     return False
@@ -580,204 +740,50 @@ class SkillAgentTool(Tool):
                             messages.append(UserPromptMessage(content=_tool_call_retry_prompt(tool_name, arg_detail)))
                             continue
 
-                        if tool_name in {"list_skill_files", "read_skill_file", "run_skill_command"}:
-                            skill_name = str(arguments.get("skill_name") or "").strip()
-                            if skill_name and not runtime.has_skill_metadata(skill_name):
-                                result = {
-                                    "error": "skill_md_required",
-                                    "skill_name": skill_name,
-                                    "detail": "必须先调用 get_skill_metadata(skill_name) 读取 SKILL.md（说明书）后，才能继续调用该工具。",
-                                }
-                                _dbg(f"tool_result name={tool_name} result={_shorten_text(result, 700)}")
-                                messages.append(
-                                    ToolPromptMessage(
-                                        tool_call_id=str(call_id or ""),
-                                        name=tool_name,
-                                        content=json.dumps(result, ensure_ascii=False),
-                                    )
-                                )
-                                messages.append(
-                                    UserPromptMessage(
-                                        content=(
-                                            f"你刚才尝试调用 `{tool_name}` 但尚未读取技能《{skill_name}》的 SKILL.md。"
-                                            f"请先调用 get_skill_metadata({skill_name!r})，再重试该工具调用。"
-                                        )
-                                    )
-                                )
-                                continue
-                            if tool_name == "run_skill_command" and skill_name and not runtime.has_listed_skill_files(skill_name):
-                                result = {
-                                    "error": "skill_files_listing_required",
-                                    "skill_name": skill_name,
-                                    "detail": "执行技能命令前，必须先调用 list_skill_files(skill_name) 查看技能包目录结构。",
-                                }
-                                _dbg(f"tool_result name={tool_name} result={_shorten_text(result, 700)}")
-                                messages.append(
-                                    ToolPromptMessage(
-                                        tool_call_id=str(call_id or ""),
-                                        name=tool_name,
-                                        content=json.dumps(result, ensure_ascii=False),
-                                    )
-                                )
-                                messages.append(
-                                    UserPromptMessage(
-                                        content=(
-                                            f"你刚才尝试调用 `{tool_name}` 但尚未查看技能《{skill_name}》的目录结构。"
-                                            f"请先调用 list_skill_files({skill_name!r})，再重试该工具调用。"
-                                        )
-                                    )
-                                )
-                                continue
+                        access_err = _validate_skill_access(tool_name, arguments, runtime)
+                        if access_err:
+                            _dbg(f"tool_result name={tool_name} result={_shorten_text(access_err, 700)}")
+                            messages.append(ToolPromptMessage(
+                                tool_call_id=str(call_id or ""),
+                                name=tool_name,
+                                content=json.dumps(access_err, ensure_ascii=False),
+                            ))
+                            messages.append(UserPromptMessage(content=_skill_access_error_hint(tool_name, access_err)))
+                            continue
 
-                        if tool_name == "get_skill_metadata":
-                            yield self.create_text_message(
-                                f"✅正在查看技能《{str(arguments.get('skill_name') or '')}》说明书…\n"
-                            )
-                        elif tool_name == "list_skill_files":
-                            yield self.create_text_message(
-                                f"✅正在查看技能《{str(arguments.get('skill_name') or '')}》文件结构…\n"
-                            )
-                        elif tool_name == "read_skill_file":
-                            yield self.create_text_message(
-                                f"✅正在读取技能《{str(arguments.get('skill_name') or '')}》文件：{str(arguments.get('relative_path') or '')}…\n"
-                            )
-                        elif tool_name == "run_skill_command":
-                            yield self.create_text_message(
-                                f"✅正在执行技能《{str(arguments.get('skill_name') or '')}》命令…\n"
-                            )
-                        elif tool_name == "write_temp_file":
-                            yield self.create_text_message(
-                                f"✅正在按说明书写入临时文件：{str(arguments.get('relative_path') or '')}…\n"
-                            )
-                        elif tool_name == "read_temp_file":
-                            yield self.create_text_message(
-                                f"✅正在读取临时文件：{str(arguments.get('relative_path') or '')}…\n"
-                            )
-                        elif tool_name == "list_temp_files":
-                            yield self.create_text_message("✅正在查看临时目录文件…\n")
-                        elif tool_name == "run_temp_command":
-                            yield self.create_text_message("✅正在执行临时命令…\n")
-                        elif tool_name == "export_temp_file":
-                            yield self.create_text_message(
-                                f"✅正在标记交付文件：{str(arguments.get('temp_relative_path') or '')}…\n"
-                            )
+                        status_msg = _get_tool_status_msg(tool_name, arguments)
+                        if status_msg:
+                            yield self.create_text_message(status_msg + "\n")
 
-                        if tool_name == "get_skill_metadata":
-                            result = runtime.get_skill_metadata(str(arguments.get("skill_name") or ""))
-                        elif tool_name == "list_skill_files":
-                            result = runtime.list_skill_files(
-                                str(arguments.get("skill_name") or ""),
-                                int(arguments.get("max_depth") or 2),
-                            )
-                        elif tool_name == "read_skill_file":
-                            result = runtime.read_skill_file(
-                                str(arguments.get("skill_name") or ""),
-                                str(arguments.get("relative_path") or ""),
-                                int(arguments.get("max_chars") or 12000),
-                            )
-                        elif tool_name == "run_skill_command":
-                            result = runtime.run_skill_command(
-                                skill_name=str(arguments.get("skill_name") or ""),
-                                command=arguments.get("command") if isinstance(arguments.get("command"), list) else [],
-                                cwd_relative=(
-                                    str(arguments.get("cwd_relative")) if arguments.get("cwd_relative") else None
-                                ),
-                                auto_install=bool(arguments.get("auto_install") or False),
-                            )
-                            if (
-                                isinstance(result, dict)
-                                and result.get("returncode") is not None
-                                and int(result.get("returncode") or 0) != 0
-                            ):
+                        result, forced_text, rs = _execute_tool_call(
+                            tool_name, arguments, runtime,
+                            session_dir=session_dir, storage=storage,
+                            resume_key=resume_key, query=query, redact_fn=redact_user_visible_text,
+                        )
+                        if rs:
+                            resume_saved = True
+
+                        if tool_name == "run_skill_command" and isinstance(result, dict):
+                            if result.get("returncode") is not None and int(result.get("returncode") or 0) != 0:
                                 stderr = str(result.get("stderr") or "").strip()
                                 if stderr:
                                     yield self.create_text_message(
                                         "❌命令执行失败（stderr）：\n" + _shorten_text(redact_user_visible_text(stderr), 1200) + "\n"
                                     )
-                            if isinstance(result, dict) and result.get("error") == "no_executable_found":
-                                skill = str(result.get("skill") or arguments.get("skill_name") or "")
-                                module = str(result.get("module") or "")
-                                forced_text = (
-                                    f"当前技能“{skill}”的说明文档要求生成文件，但技能包内未找到可执行入口（例如脚本或 Python 模块）。\n"
-                                    f"本次尝试的入口为 python -m {module}，但在技能目录中不存在，因此无法继续生成目标文件。\n\n"
-                                    "我已先按技能说明生成了可交付的中间产物（例如设计哲学 .md）。\n"
-                                    "你是否允许我在 temp 目录中自行创建可执行脚本，并在需要时安装依赖后，再尝试生成最终文件？"
-                                )
-                                _storage_set_json(
-                                    storage,
-                                    resume_key,
-                                    {
-                                        "pending": True,
-                                        "session_dir": session_dir,
-                                        "original_query": query,
-                                        "reason": "no_executable_found",
-                                        "skill": skill,
-                                        "module": module,
-                                        "created_at": int(time.time()),
-                                    },
-                                )
-                                resume_saved = True
-                                _dbg(
-                                    "resume_state_saved "
-                                    + _shorten_text(
-                                        {"session_dir": session_dir, "skill": skill, "module": module, "pending": True},
-                                        300,
-                                    )
-                                )
-                        elif tool_name == "get_session_context":
-                            result = runtime.get_session_context()
-                        elif tool_name == "write_temp_file":
-                            result = runtime.write_temp_file(
-                                str(arguments.get("relative_path") or ""),
-                                str(arguments.get("content") or ""),
-                            )
-                        elif tool_name == "read_temp_file":
-                            result = runtime.read_temp_file(
-                                str(arguments.get("relative_path") or ""),
-                                int(arguments.get("max_chars") or 12000),
-                            )
-                        elif tool_name == "list_temp_files":
-                            result = runtime.list_temp_files(int(arguments.get("max_depth") or 4))
-                        elif tool_name == "run_temp_command":
-                            result = runtime.run_temp_command(
-                                command=arguments.get("command") if isinstance(arguments.get("command"), list) else [],
-                                cwd_relative=(
-                                    str(arguments.get("cwd_relative")) if arguments.get("cwd_relative") else None
-                                ),
-                                auto_install=bool(arguments.get("auto_install") or False),
-                            )
-                            if (
-                                isinstance(result, dict)
-                                and result.get("returncode") is not None
-                                and int(result.get("returncode") or 0) != 0
-                            ):
+                        if tool_name == "run_temp_command" and isinstance(result, dict):
+                            if result.get("returncode") is not None and int(result.get("returncode") or 0) != 0:
                                 stderr = str(result.get("stderr") or "").strip()
                                 if stderr:
                                     yield self.create_text_message(
                                         "❌命令执行失败（stderr）：\n" + _shorten_text(redact_user_visible_text(stderr), 1200) + "\n"
                                     )
-                        elif tool_name == "export_temp_file":
-                            temp_rel = str(arguments.get("temp_relative_path") or "")
-                            workspace_rel = str(arguments.get("workspace_relative_path") or "")
-                            result = runtime.export_temp_file(
-                                temp_relative_path=temp_rel,
-                                workspace_relative_path=workspace_rel,
-                                overwrite=bool(arguments.get("overwrite") or False),
-                            )
-                            out_name = os.path.basename(workspace_rel) if workspace_rel else ""
-                            if (
-                                isinstance(result, dict)
-                                and not result.get("error")
-                                and temp_rel
-                                and out_name
-                            ):
-                                final_file_meta[temp_rel] = {
-                                    **(final_file_meta.get(temp_rel) or {}),
-                                    "filename": out_name,
-                                    "mime_type": _guess_mime_type(out_name),
-                                }
-                        else:
-                            result = {"error": f"unknown tool: {tool_name}"}
+                        export_meta = _extract_export_meta(result, tool_name, arguments)
+                        if export_meta:
+                            final_file_meta[export_meta["temp_rel"]] = {
+                                **(final_file_meta.get(export_meta["temp_rel"]) or {}),
+                                "filename": export_meta["filename"],
+                                "mime_type": export_meta["mime_type"],
+                            }
 
                         _dbg(f"tool_result name={tool_name} result={_shorten_text(result, 700)}")
                         messages.append(
@@ -864,139 +870,37 @@ class SkillAgentTool(Tool):
                     )
                     continue
 
-                if name in {"list_skill_files", "read_skill_file", "run_skill_command"}:
-                    skill_name = str(arguments.get("skill_name") or "").strip()
-                    if skill_name and not runtime.has_skill_metadata(skill_name):
-                        messages.append(
-                            UserPromptMessage(
-                                content=(
-                                    f"你刚才尝试调用 `{name}` 但尚未读取技能《{skill_name}》的 SKILL.md。"
-                                    f"请先调用 get_skill_metadata({skill_name!r})，再重试该工具调用。"
-                                )
-                            )
-                        )
-                        result = {
-                            "error": "skill_md_required",
-                            "skill_name": skill_name,
-                            "detail": "必须先调用 get_skill_metadata(skill_name) 读取 SKILL.md（说明书）后，才能继续调用该工具。",
-                        }
-                        _dbg(f"json_tool_result name={name} result={_shorten_text(result, 700)}")
-                        messages.append(
-                            AssistantPromptMessage(
-                                content="TOOL_RESULT\n" + json.dumps({"name": name, "result": result}, ensure_ascii=False)
-                            )
-                        )
-                        continue
-                    if name == "run_skill_command" and skill_name and not runtime.has_listed_skill_files(skill_name):
-                        messages.append(
-                            UserPromptMessage(
-                                content=(
-                                    f"你刚才尝试调用 `{name}` 但尚未查看技能《{skill_name}》的目录结构。"
-                                    f"请先调用 list_skill_files({skill_name!r})，再重试该工具调用。"
-                                )
-                            )
-                        )
-                        result = {
-                            "error": "skill_files_listing_required",
-                            "skill_name": skill_name,
-                            "detail": "执行技能命令前，必须先调用 list_skill_files(skill_name) 查看技能包目录结构。",
-                        }
-                        _dbg(f"json_tool_result name={name} result={_shorten_text(result, 700)}")
-                        messages.append(
-                            AssistantPromptMessage(
-                                content="TOOL_RESULT\n" + json.dumps({"name": name, "result": result}, ensure_ascii=False)
-                            )
-                        )
-                        continue
+                access_err = _validate_skill_access(name, arguments, runtime)
+                if access_err:
+                    messages.append(UserPromptMessage(content=_skill_access_error_hint(name, access_err)))
+                    _dbg(f"json_tool_result name={name} result={_shorten_text(access_err, 700)}")
+                    messages.append(AssistantPromptMessage(
+                        content="TOOL_RESULT\n" + json.dumps({"name": name, "result": access_err}, ensure_ascii=False)
+                    ))
+                    continue
 
                 _dbg(f"json_tool name={name} args={_shorten_text(arguments, 400)}")
                 messages.append(AssistantPromptMessage(content=json.dumps(action, ensure_ascii=False)))
 
-                if name == "get_skill_metadata":
-                    yield self.create_text_message(f"✅正在查看技能《{str(arguments.get('skill_name') or '')}》说明书…\n")
-                elif name == "list_skill_files":
-                    yield self.create_text_message(f"✅正在查看技能《{str(arguments.get('skill_name') or '')}》文件结构…\n")
-                elif name == "read_skill_file":
-                    yield self.create_text_message(
-                        f"✅正在读取技能《{str(arguments.get('skill_name') or '')}》文件：{str(arguments.get('relative_path') or '')}…\n"
-                    )
-                elif name == "run_skill_command":
-                    yield self.create_text_message(
-                        f"✅正在执行技能《{str(arguments.get('skill_name') or '')}》命令…\n"
-                    )
-                elif name == "write_temp_file":
-                    yield self.create_text_message(f"✅正在按说明书写入临时文件：{str(arguments.get('relative_path') or '')}…\n")
-                elif name == "read_temp_file":
-                    yield self.create_text_message(f"✅正在读取临时文件：{str(arguments.get('relative_path') or '')}…\n")
-                elif name == "list_temp_files":
-                    yield self.create_text_message("✅正在查看临时目录文件…\n")
-                elif name == "run_temp_command":
-                    yield self.create_text_message("✅正在执行临时命令…\n")
-                elif name == "export_temp_file":
-                    yield self.create_text_message(f"✅正在标记交付文件：{str(arguments.get('temp_relative_path') or '')}…\n")
+                status_msg = _get_tool_status_msg(name, arguments)
+                if status_msg:
+                    yield self.create_text_message(status_msg + "\n")
 
-                if name == "get_skill_metadata":
-                    result = runtime.get_skill_metadata(str(arguments.get("skill_name") or ""))
-                elif name == "list_skill_files":
-                    result = runtime.list_skill_files(
-                        str(arguments.get("skill_name") or ""),
-                        int(arguments.get("max_depth") or 2),
-                    )
-                elif name == "read_skill_file":
-                    result = runtime.read_skill_file(
-                        str(arguments.get("skill_name") or ""),
-                        str(arguments.get("relative_path") or ""),
-                        int(arguments.get("max_chars") or 12000),
-                    )
-                elif name == "run_skill_command":
-                    result = runtime.run_skill_command(
-                        skill_name=str(arguments.get("skill_name") or ""),
-                        command=arguments.get("command") if isinstance(arguments.get("command"), list) else [],
-                        cwd_relative=(str(arguments.get("cwd_relative")) if arguments.get("cwd_relative") else None),
-                        auto_install=bool(arguments.get("auto_install") or False),
-                    )
-                elif name == "get_session_context":
-                    result = runtime.get_session_context()
-                elif name == "write_temp_file":
-                    result = runtime.write_temp_file(
-                        str(arguments.get("relative_path") or ""),
-                        str(arguments.get("content") or ""),
-                    )
-                elif name == "read_temp_file":
-                    result = runtime.read_temp_file(
-                        str(arguments.get("relative_path") or ""),
-                        int(arguments.get("max_chars") or 12000),
-                    )
-                elif name == "list_temp_files":
-                    result = runtime.list_temp_files(int(arguments.get("max_depth") or 4))
-                elif name == "run_temp_command":
-                    result = runtime.run_temp_command(
-                        command=arguments.get("command") if isinstance(arguments.get("command"), list) else [],
-                        cwd_relative=(str(arguments.get("cwd_relative")) if arguments.get("cwd_relative") else None),
-                        auto_install=bool(arguments.get("auto_install") or False),
-                    )
-                elif name == "export_temp_file":
-                    temp_rel = str(arguments.get("temp_relative_path") or "")
-                    workspace_rel = str(arguments.get("workspace_relative_path") or "")
-                    result = runtime.export_temp_file(
-                        temp_relative_path=temp_rel,
-                        workspace_relative_path=workspace_rel,
-                        overwrite=bool(arguments.get("overwrite") or False),
-                    )
-                    out_name = os.path.basename(workspace_rel) if workspace_rel else ""
-                    if (
-                        isinstance(result, dict)
-                        and not result.get("error")
-                        and temp_rel
-                        and out_name
-                    ):
-                        final_file_meta[temp_rel] = {
-                            **(final_file_meta.get(temp_rel) or {}),
-                            "filename": out_name,
-                            "mime_type": _guess_mime_type(out_name),
-                        }
-                else:
-                    result = {"error": f"unknown tool: {name}"}
+                result, forced_text, rs = _execute_tool_call(
+                    name, arguments, runtime,
+                    session_dir=session_dir, storage=storage,
+                    resume_key=resume_key, query=query, redact_fn=redact_user_visible_text,
+                )
+                if rs:
+                    resume_saved = True
+
+                export_meta = _extract_export_meta(result, name, arguments)
+                if export_meta:
+                    final_file_meta[export_meta["temp_rel"]] = {
+                        **(final_file_meta.get(export_meta["temp_rel"]) or {}),
+                        "filename": export_meta["filename"],
+                        "mime_type": export_meta["mime_type"],
+                    }
 
                 _dbg(f"json_tool_result name={name} result={_shorten_text(result, 700)}")
                 messages.append(
