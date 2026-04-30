@@ -169,6 +169,24 @@ def _normalize_small_reply(text: str) -> str:
     t = re.sub(r"[。．\.，,！!？\?；;：:\-—_~`'\"]+", "", t)
     return t
 
+def _is_allow_reply(text: str) -> bool:
+    t = _normalize_small_reply(text)
+    if not t:
+        return False
+    if any(x in t for x in ("不允许", "不同意", "不可以", "不要", "拒绝", "取消")):
+        return False
+    if t in {"允许", "同意", "可以", "好的", "好", "ok", "okay", "yes", "y", "sure"}:
+        return True
+    if "允许" in t or "同意" in t:
+        return True
+    return False
+
+def _is_deny_reply(text: str) -> bool:
+    t = _normalize_small_reply(text)
+    if not t:
+        return False
+    return any(x in t for x in ("不允许", "不同意", "不可以", "不要", "拒绝", "取消"))
+
 def _coerce_content_item_to_dict(item: Any) -> dict[str, Any] | None:
     if item is None:
         return None
