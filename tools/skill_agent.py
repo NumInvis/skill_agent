@@ -228,7 +228,7 @@ def _extract_export_meta(result: dict, tool_name: str, arguments: dict) -> dict 
 
 class SkillAgentTool(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage]:
-        model = tool_parameters.get("model")
+        model = tool_parameters.get("model") or getattr(getattr(self, "session", None), "model", None) or {}
         query = tool_parameters.get("query")
         max_steps = int(tool_parameters.get("max_steps") or 15)
         memory_turns = int(tool_parameters.get("memory_turns") or 12)

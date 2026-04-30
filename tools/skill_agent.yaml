@@ -20,32 +20,11 @@ parameters:
     label:
       en_US: Query string
       zh_Hans: 查询语句
-      pt_BR: Query string
-      ja_JP: クエリ文字列
     human_description:
       en_US: "please input your question"
       zh_Hans: "请输入你想问的问题"
-      pt_BR: "please input your question"
-      ja_JP: "クエリ文字列は、Skill_Agent に対して実行するタスクを指定する必要があります。"
     llm_description: "please input your question"
     form: llm
-
-  - name: model
-    type: model-selector
-    scope: llm
-    required: true
-    label:
-      en_US: Model
-      zh_Hans: 大模型
-      pt_BR: Model
-      ja_JP: モデル
-    human_description:
-      en_US: Select an LLM to run this tool.
-      zh_Hans: 选择用于运行本工具的大模型
-      pt_BR: Select an LLM to run this tool.
-      ja_JP: このツールを実行する LLM を選択します
-    llm_description: Select an LLM to run this tool.
-    form: form
 
   - name: max_steps
     type: number
