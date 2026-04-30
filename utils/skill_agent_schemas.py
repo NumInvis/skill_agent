@@ -8,7 +8,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "get_skill_metadata",
-            "description": "读取指定技能包的SKILL.md与元数据",
+            "description": "Read SKILL.md and metadata for a specified skill package",
             "parameters": {
                 "type": "object",
                 "properties": {"skill_name": {"type": "string"}},
@@ -20,7 +20,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "list_skill_files",
-            "description": "列出指定技能包内的文件结构",
+            "description": "List file structure within a specified skill package",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -35,7 +35,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "read_skill_file",
-            "description": "读取技能包内的文件内容",
+            "description": "Read file content from a skill package",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -51,7 +51,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "run_skill_command",
-            "description": "在技能包目录内执行命令（限定可执行程序）",
+            "description": "Execute command within skill package directory (restricted executables)",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -68,7 +68,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "get_session_context",
-            "description": "获取本次会话的技能目录与临时目录信息",
+            "description": "Get skill directory and temp directory info for this session",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -76,7 +76,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "write_temp_file",
-            "description": "将文本写入 temp 会话目录（相对路径）",
+            "description": "Write text to temp session directory (relative path)",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -91,7 +91,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "read_temp_file",
-            "description": "读取 temp 会话目录文件内容（相对路径）",
+            "description": "Read file content from temp session directory (relative path)",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -106,7 +106,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "list_temp_files",
-            "description": "列出 temp 会话目录文件结构",
+            "description": "List file structure in temp session directory",
             "parameters": {
                 "type": "object",
                 "properties": {"max_depth": {"type": "integer", "default": 4}},
@@ -117,7 +117,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "run_temp_command",
-            "description": "在 temp 会话目录内执行命令（限定可执行程序）",
+            "description": "Execute command within temp session directory (restricted executables)",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -133,7 +133,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "export_temp_file",
-            "description": "标记 temp 会话文件为最终交付文件（不复制）",
+            "description": "Mark temp session file as final deliverable (does not copy)",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -150,7 +150,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
 
 def _validate_tool_arguments(tool_name: str, arguments: Any) -> tuple[bool, str]:
     if not isinstance(arguments, dict):
-        return False, "arguments 必须是对象(dict)"
+        return False, "arguments must be an object (dict)"
 
     required: dict[str, list[str]] = {
         "get_skill_metadata": ["skill_name"],
@@ -182,12 +182,12 @@ def _validate_tool_arguments(tool_name: str, arguments: Any) -> tuple[bool, str]
             continue
 
     if missing:
-        return False, "缺少或为空的必填参数: " + ", ".join(missing)
+        return False, "Missing or empty required parameters: " + ", ".join(missing)
     return True, ""
 
 
 def _tool_call_retry_prompt(tool_name: str, detail: str) -> str:
     return (
-        f"你刚才发起的工具调用 `{tool_name}` 参数不合法：{detail}。"
-        "请严格按工具 schema 重新发起调用（arguments 必须包含必填字段且非空）。"
+        f"Your tool call `{tool_name}` has invalid arguments: {detail}. "
+        "Please retry strictly following the tool schema (arguments must include all required fields and be non-empty)."
     )

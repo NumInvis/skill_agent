@@ -36,7 +36,7 @@ def _build_uploads_context(session_dir: str, *, max_files: int = 50) -> str:
     if not files:
         return ""
     files = files[: max(1, int(max_files or 50))]
-    lines = ["\n\n[上传文件清单]", "以下路径均相对于本次会话的 session_dir："]
+    lines = ["\n\n[Uploaded Files]", "All paths are relative to this session's session_dir:"]
     for f in files:
         lines.append(
             f"- {f.get('relative_path')} | mime={f.get('mime_type') or ''} | bytes={f.get('bytes') or 0} | filename={f.get('filename') or ''}"

@@ -147,5 +147,5 @@ def _missing_executable_hint(exe: str) -> str:
     base = os.path.basename(str(exe or "")).lower()
     base = base.split(".", 1)[0]
     if base in {"node", "npm", "npx"}:
-        return "需要在 plugin_daemon 容器中安装 Node.js 环境，并确保 node/npm/npx 在 PATH"
-    return "请确认该命令已安装并加入 PATH"
+        return "Node.js environment needs to be installed in the plugin_daemon container, and node/npm/npx must be in PATH"
+    return "Please confirm this command is installed and added to PATH"
