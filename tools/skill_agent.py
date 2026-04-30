@@ -297,11 +297,15 @@ class SkillAgentTool(Tool):
         def compact() -> None:
             if memory_turns <= 0:
                 return
-            keep = 1 + memory_turns * 6
-            if len(messages) > keep:
-                system_msg = messages[0]
-                tail = messages[-(keep - 1) :]
-                messages[:] = [system_msg, *tail]
+            if len(messages) <= 2:
+                return
+            system_msg = messages[0]
+            rest = messages[1:]
+            user_turn_indices = [i for i, m in enumerate(rest) if isinstance(m, UserPromptMessage)]
+            if len(user_turn_indices) <= memory_turns:
+                return
+            cut_idx = user_turn_indices[-memory_turns]
+            messages[:] = [system_msg, *rest[cut_idx:]]
 
         final_text: str | None = None
         final_file_meta: dict[str, dict[str, str]] = {}
@@ -450,6 +454,10 @@ class SkillAgentTool(Tool):
                     )
                 except TypeError:
                     _dbg("LLM does not support tools parameter, falling back to JSON protocol")
+                    yield self.create_text_message(
+                        "⚠️ 当前模型不支持 Function Call，已自动切换到 JSON 协议模式。\n"
+                        "部分高级功能可能受限，建议更换支持 Function Call 的模型以获得最佳体验。\n\n"
+                    )
                     tools = None
                     response = self.session.model.llm.invoke(
                         model_config=model,
