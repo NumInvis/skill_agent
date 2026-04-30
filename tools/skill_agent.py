@@ -53,13 +53,28 @@ from dify_plugin.entities.model.message import (
 )
 from dify_plugin.entities.tool import ToolInvokeMessage
 
+
+def _format_skills_index(skills_index: dict) -> str:
+    """将技能索引格式化为紧凑的 XML 格式，减少 token 消耗"""
+    skills = skills_index.get("skills") or []
+    if not skills:
+        return "（无可用技能）"
+    lines = []
+    for s in skills:
+        name = s.get("name") or ""
+        desc = s.get("description") or ""
+        if name:
+            lines.append(f'<skill name="{name}">{desc}</skill>')
+    return "\n".join(lines)
+
+
 class SkillAgentTool(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage]:
         model = tool_parameters.get("model")
         query = tool_parameters.get("query")
-        max_steps = int(tool_parameters.get("max_steps") or 8)
-        memory_turns = int(tool_parameters.get("memory_turns") or 10)
-        history_turns = int(tool_parameters.get("history_turns") or 0)
+        max_steps = int(tool_parameters.get("max_steps") or 15)
+        memory_turns = int(tool_parameters.get("memory_turns") or 12)
+        history_turns = int(tool_parameters.get("history_turns") or 3)
         system_prompt = tool_parameters.get("system_prompt") or "你是一个xxxx"
         skills_root = _detect_skills_root(tool_parameters.get("skills_root"))
 
@@ -83,7 +98,7 @@ class SkillAgentTool(Tool):
         if persisted_session_dir and os.path.isdir(persisted_session_dir):
             session_dir = persisted_session_dir
         else:
-            session_dir = os.path.join(temp_root, f"dify-skill-{uuid.uuid4().hex[:8]}-")
+            session_dir = os.path.join(temp_root, f"dify-skill-{uuid.uuid4().hex[:8]}")
         resume_context = ""
 
         if resume_pending and _is_deny_reply(user_input):
@@ -174,7 +189,8 @@ class SkillAgentTool(Tool):
             uploads_dir = _safe_join(session_dir, "uploads")
             os.makedirs(uploads_dir, exist_ok=True)
 
-        uploads_context = _build_uploads_context(session_dir)
+        if not uploads_context:
+            uploads_context = _build_uploads_context(session_dir)
 
         runtime = _AgentRuntime(
             skills_root=skills_root,
@@ -269,7 +285,7 @@ class SkillAgentTool(Tool):
             + '{"type":"tool","name":"get_skill_metadata","arguments":{"skill_name":"xxx"}}\n'
             + '或 {"type":"final","content":"..."}\n\n'
             + "技能索引（用于判断是否需要调用技能）：\n"
-            + json.dumps(skills_index, ensure_ascii=False)
+            + _format_skills_index(skills_index)
             + (resume_context or "")
         )
 
@@ -281,7 +297,7 @@ class SkillAgentTool(Tool):
         def compact() -> None:
             if memory_turns <= 0:
                 return
-            keep = 1 + memory_turns * 4
+            keep = 1 + memory_turns * 6
             if len(messages) > keep:
                 system_msg = messages[0]
                 tail = messages[-(keep - 1) :]
@@ -433,6 +449,8 @@ class SkillAgentTool(Tool):
                         stream=True,
                     )
                 except TypeError:
+                    _dbg("LLM does not support tools parameter, falling back to JSON protocol")
+                    tools = None
                     response = self.session.model.llm.invoke(
                         model_config=model,
                         prompt_messages=prompt_messages,
@@ -992,19 +1010,6 @@ class SkillAgentTool(Tool):
         finally:
             if not resume_saved and not is_resuming and resume_pending:
                 _storage_set_json(storage, resume_key, None)
-            temp_files_text = ""
-            try:
-                temp_entries = _list_dir(session_dir, max_depth=10)
-                rel_paths = [
-                    str(e.get("relative_path"))
-                    for e in temp_entries
-                    if e.get("type") == "file" and isinstance(e.get("relative_path"), str)
-                ]
-                if rel_paths:
-                    temp_files_text = "\n\n[temp_files]\n" + "\n".join(rel_paths)
-                _dbg(f"temp_files_count={len(rel_paths)}")
-            except Exception:
-                temp_files_text = ""
 
             files_to_send: list[tuple[str, str, str, str]] = []
             try:

@@ -72,7 +72,9 @@ class _AgentRuntime:
         content = _read_text(skill_md, 12000)
         meta = _parse_frontmatter(content)
         self._skill_metadata_cache[skill_name] = {"skill": skill_name, "metadata": meta}
-        return {"skill": skill_name, "metadata": meta, "skill_md": content}
+        files = _list_dir(path, max_depth=2)
+        self._skill_files_listed.add(skill_name)
+        return {"skill": skill_name, "metadata": meta, "skill_md": content, "files": files}
 
     def list_skill_files(self, skill_name: str, max_depth: int = 2) -> dict[str, Any]:
         if not self.skills_root:
