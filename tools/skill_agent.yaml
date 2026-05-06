@@ -97,6 +97,22 @@ parameters:
       ja_JP: 以前の実行から挿入する原文のターン数
     llm_description: Inject previous turns as raw transcript for continuity.
     form: form
+
+  - name: system_prompt
+    type: string
+    required: false
+    label:
+      en_US: System Prompt
+      zh_Hans: 系统提示词
+      pt_BR: System Prompt
+      ja_JP: システムプロンプト
+    human_description:
+      en_US: Custom system prompt for the agent
+      zh_Hans: 自定义 Agent 的系统提示词
+      pt_BR: Custom system prompt for the agent
+      ja_JP: Agent のカスタムシステムプロンプト
+    default: "你是一个基于 Skill 渐进式披露模式执行任务的智能代理"
+    form: form
 extra:
   python:
     source: tools/skill_agent.py

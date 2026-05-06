@@ -28,7 +28,7 @@ resource:
       speech2text: false
       moderation: false
     endpoint:
-      enabled: true
+      enabled: false
     app:
       enabled: true
     storage:
@@ -38,7 +38,7 @@ plugins:
   tools:
     - provider/skill_agent.yaml
 meta:
-  version: 0.0.4
+  version: 0.0.1
   arch:
     - amd64
     - arm64

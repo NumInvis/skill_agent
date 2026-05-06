@@ -9,42 +9,54 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Download CLI tool
-        run: |
-          mkdir -p $RUNNER_TEMP/bin
-          cd $RUNNER_TEMP/bin
-
-          wget https://github.com/langgenius/dify-plugin-daemon/releases/download/0.0.6/dify-plugin-linux-amd64
-          chmod +x dify-plugin-linux-amd64
-
-          echo "CLI tool location:"
-          pwd
-          ls -la dify-plugin-linux-amd64
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Get basic info from manifest
         id: get_basic_info
         run: |
-          PLUGIN_NAME=$(grep "^name:" manifest.yaml | cut -d' ' -f2)
+          PLUGIN_NAME=$(grep "^name:" manifest.yaml | awk '{print $2}')
           echo "Plugin name: $PLUGIN_NAME"
           echo "plugin_name=$PLUGIN_NAME" >> $GITHUB_OUTPUT
 
-          VERSION=$(grep "^version:" manifest.yaml | cut -d' ' -f2)
+          VERSION=$(grep "^version:" manifest.yaml | awk '{print $2}')
           echo "Plugin version: $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
           # If the author's name is not your github username, you can change the author here
-          AUTHOR=$(grep "^author:" manifest.yaml | cut -d' ' -f2)
+          AUTHOR=$(grep "^author:" manifest.yaml | awk '{print $2}')
           echo "Plugin author: $AUTHOR"
           echo "author=$AUTHOR" >> $GITHUB_OUTPUT
 
-      - name: Package Plugin
+      - name: Package Plugin (Python fallback)
         id: package
         run: |
           cd $GITHUB_WORKSPACE
           PACKAGE_NAME="${{ steps.get_basic_info.outputs.plugin_name }}-${{ steps.get_basic_info.outputs.version }}.difypkg"
-          $RUNNER_TEMP/bin/dify-plugin-linux-amd64 plugin package . -o "$PACKAGE_NAME"
+
+          # Try official CLI first (if available), otherwise fall back to pure-Python packager
+          CLI_FOUND=false
+          mkdir -p $RUNNER_TEMP/bin
+          cd $RUNNER_TEMP/bin
+
+          for CLI_VER in 0.0.6 0.0.5; do
+            wget -q "https://github.com/langgenius/dify-plugin-daemon/releases/download/${CLI_VER}/dify-plugin-linux-amd64" -O dify-plugin-linux-amd64 2>/dev/null || continue
+            chmod +x dify-plugin-linux-amd64
+            if ./dify-plugin-linux-amd64 plugin package "$GITHUB_WORKSPACE" -o "$GITHUB_WORKSPACE/$PACKAGE_NAME" 2>/dev/null; then
+              CLI_FOUND=true
+              break
+            fi
+          done
+
+          cd $GITHUB_WORKSPACE
+          if [ "$CLI_FOUND" != "true" ]; then
+            echo "Official CLI not available or failed; falling back to Python packager."
+            python scripts/package_plugin.py . -o "$PACKAGE_NAME"
+          fi
 
           echo "Package result:"
           ls -la "$PACKAGE_NAME"
@@ -56,7 +68,7 @@ jobs:
           tree || ls -R
 
       - name: Checkout target repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: ${{steps.get_basic_info.outputs.author}}/dify-plugins
           path: dify-plugins

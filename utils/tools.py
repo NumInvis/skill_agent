@@ -355,7 +355,19 @@ def _safe_filename(preferred_name: str | None, fallback_ext: str = "") -> str:
             return base
     return f"{uuid.uuid4().hex}{fallback_ext}"
 
+def _resolve_file_url(url: str) -> str:
+    """将相对文件 URL 拼接为完整 URL。"""
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    base = os.environ.get("DIFY_INNER_API_URL", os.environ.get("PLUGIN_DIFY_INNER_API_URL", "http://api:5001"))
+    if base and not base.endswith("/"):
+        base = base + "/"
+    path = url.lstrip("/")
+    return base + path
+
+
 def _download_file_content(url: str, timeout: int = 30) -> bytes:
-    req = Request(url, headers={"User-Agent": "dify-plugin-skill/1.0"})
+    full_url = _resolve_file_url(url)
+    req = Request(full_url, headers={"User-Agent": "dify-plugin-skill/1.0"})
     with urlopen(req, timeout=timeout) as resp:
         return resp.read()

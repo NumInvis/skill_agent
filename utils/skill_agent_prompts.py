@@ -135,17 +135,6 @@ MSG_FILES_GENERATED_SHORT = "Files generated."
 MSG_INTERMEDIATE_ONLY = "Intermediate files generated, but export_temp_file was not called to mark deliverable files."
 MSG_NO_OUTPUT_SHORT = "No text or file output generated."
 
-# ── No Executable Found (forced_text) ───────────────────────────────────────
-MSG_NO_EXECUTABLE = (
-    'The skill "{skill}" requires file generation, but no executable entry was found in the skill package '
-    '(e.g., script or Python module).\n'
-    'The attempted entry was python -m {module}, which does not exist in the skill directory, '
-    'so the target file cannot be generated.\n\n'
-    'I have already generated deliverable intermediate artifacts (e.g., design philosophy .md) per the skill instructions.\n'
-    'Would you allow me to create executable scripts in the temp directory and install dependencies as needed, '
-    'then attempt to generate the final file?'
-)
-
 # ── Misc ────────────────────────────────────────────────────────────────────
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant"
 PROGRESS_TAG = "\n[Skill_Agent]\n"

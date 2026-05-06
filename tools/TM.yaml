@@ -29,6 +29,21 @@ parameters:
       ja_JP: "ローカルのスキルパッケージを管理（追加/削除/表示/ダウンロード）"
     llm_description: "supported commands: add, delete, list, download"
     form: llm
+
+  - name: files
+    type: files
+    required: false
+    label:
+      en_US: Files
+      zh_Hans: 上传文件
+      pt_BR: Files
+      ja_JP: ファイル
+    human_description:
+      en_US: Upload skill zip files
+      zh_Hans: 上传技能 zip 文件（用于新增技能）
+      pt_BR: Upload skill zip files
+      ja_JP: スキル zip ファイルをアップロード
+    form: form
 extra:
   python:
     source: tools/TM.py

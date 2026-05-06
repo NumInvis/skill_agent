@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import re
 import shutil
 import tempfile
@@ -16,13 +17,27 @@ from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
 
+def _resolve_file_url(url: str) -> str:
+    """将相对文件 URL 拼接为完整 URL。"""
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    # Dify 内部 API 地址（插件进程在 daemon 容器内运行，可访问内部网络）
+    base = os.environ.get("DIFY_INNER_API_URL", os.environ.get("PLUGIN_DIFY_INNER_API_URL", "http://api:5001"))
+    if base and not base.endswith("/"):
+        base = base + "/"
+    # url 可能是 /files/xxx 或 files/xxx
+    path = url.lstrip("/")
+    return base + path
+
+
 def get_file_content(url: str, timeout: int = 30) -> bytes:
+    full_url = _resolve_file_url(url)
     try:
-        req = Request(url, headers={"User-Agent": "dify-plugin-skill/1.0"})
+        req = Request(full_url, headers={"User-Agent": "dify-plugin-skill/1.0"})
         with urlopen(req, timeout=timeout) as resp:
             return resp.read()
     except Exception as e:
-        raise RuntimeError(f"文件下载失败: {str(e)}") from e
+        raise RuntimeError(f"文件下载失败 ({full_url}): {str(e)}") from e
 
 
 def get_skills_dir() -> Path:
@@ -139,15 +154,30 @@ class TMTool(Tool):
                 file_items = [tool_parameters["file"]]
 
             if not file_items:
-                yield self.create_text_message("❌未检测到上传的 zip 文件，请提供 files 参数。\n")
+                yield self.create_text_message(
+                    "❌未检测到上传的 zip 文件。\n"
+                    "原因：工具的 files 参数未收到文件。\n"
+                    "请在工作流中检查以下配置：\n"
+                    "1) 「开始」节点或「文件上传」节点已开启文件上传功能\n"
+                    "2) 「技能管理」工具节点的「files」参数已绑定文件变量（如 sys.files 或开始节点的 file 输出）\n"
+                    "3) 若使用 Agent/Chat 应用，请在输入框旁的「+」中上传文件\n"
+                )
                 return
 
             skills_dir = get_skills_dir()
             installed: list[str] = []
 
             for file_item in file_items:
+                # 优先尝试直接从 File 对象获取 blob（SDK 转换后的 File 对象）
+                content: bytes | None = None
+                try:
+                    if hasattr(file_item, "blob"):
+                        content = file_item.blob
+                except Exception:
+                    content = None
+
                 url, preferred_name = extract_url_and_name(file_item)
-                if not url:
+                if not url and content is None:
                     yield self.create_text_message("❌无法获取文件URL，请检查入参（files[i].url）。\n")
                     return
 
@@ -159,11 +189,12 @@ class TMTool(Tool):
                 if isinstance(file_item, dict):
                     filename_attr = file_item.get("filename", filename_attr)
 
-                try:
-                    content = get_file_content(url)
-                except Exception as e:
-                    yield self.create_text_message(str(e))
-                    return
+                if content is None:
+                    try:
+                        content = get_file_content(url)
+                    except Exception as e:
+                        yield self.create_text_message(str(e))
+                        return
 
                 if filename_attr:
                     filename = Path(filename_attr).name

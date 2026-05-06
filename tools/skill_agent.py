@@ -55,12 +55,12 @@ from dify_plugin.entities.tool import ToolInvokeMessage
 
 class SkillAgentTool(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage]:
-        model = tool_parameters.get("model")
+        model = tool_parameters.get("model") or getattr(getattr(self, "session", None), "model", None) or {}
         query = tool_parameters.get("query")
         max_steps = int(tool_parameters.get("max_steps") or 8)
         memory_turns = int(tool_parameters.get("memory_turns") or 10)
         history_turns = int(tool_parameters.get("history_turns") or 0)
-        system_prompt = tool_parameters.get("system_prompt") or "你是一个xxxx"
+        system_prompt = tool_parameters.get("system_prompt") or "你是一个基于 Skill 渐进式披露模式执行任务的智能代理"
         skills_root = _detect_skills_root(tool_parameters.get("skills_root"))
 
         if not query or not isinstance(query, str):
@@ -120,11 +120,9 @@ class SkillAgentTool(Tool):
         elif tool_parameters.get("file"):
             file_items = [tool_parameters.get("file")]
 
-        uploads_context = ""
+        uploads_dir = _safe_join(session_dir, "uploads")
+        os.makedirs(uploads_dir, exist_ok=True)
         if file_items:
-            uploads_dir = _safe_join(session_dir, "uploads")
-            os.makedirs(uploads_dir, exist_ok=True)
-            uploaded: list[dict[str, Any]] = []
             for item in file_items:
                 url, name = _extract_url_and_name(item)
                 if not url:
@@ -144,35 +142,6 @@ class SkillAgentTool(Tool):
                 except Exception as e:
                     yield self.create_text_message(f"❌保存上传文件失败：{str(e)}\n")
                     return
-
-                rel_path = f"uploads/{filename}"
-                mime = None
-                if isinstance(item, dict) and item.get("mime_type"):
-                    mime = str(item.get("mime_type") or "").strip() or None
-                if not mime:
-                    try:
-                        mime = _guess_mime_type(filename)
-                    except Exception:
-                        mime = None
-                uploaded.append(
-                    {
-                        "relative_path": rel_path,
-                        "bytes": len(content),
-                        "mime_type": mime or "",
-                        "filename": filename,
-                        "source_url": str(url),
-                    }
-                )
-
-            lines = ["\n\n[上传文件清单]", "以下路径均相对于本次会话的 session_dir："]
-            for f in uploaded:
-                lines.append(
-                    f"- {f.get('relative_path')} | mime={f.get('mime_type') or ''} | bytes={f.get('bytes') or 0} | filename={f.get('filename') or ''}"
-                )
-            uploads_context = "\n".join(lines) + "\n"
-        else:
-            uploads_dir = _safe_join(session_dir, "uploads")
-            os.makedirs(uploads_dir, exist_ok=True)
 
         uploads_context = _build_uploads_context(session_dir)
 
@@ -246,7 +215,7 @@ class SkillAgentTool(Tool):
             + "依赖安装规则：如需 npm install/npm ci/bun install，必须用 run_skill_command 在技能包内含 package.json 的目录执行（通过 cwd_relative 指到该目录）；禁止在 session_dir 执行 install，否则会写入 temp/<session>/node_modules 导致每次会话重复安装。\n"
             + "补充规则1：如果用户请求中已经明确给出具体类型/参数，则视为已确认，不要重复追问，直接进入对应分支执行。\n"
             + "补充规则2：当你需要向用户追问任何信息时：本轮必须只输出问题与选项，并立刻结束；不得在同一轮继续读取任何文件、执行任何命令、生成任何产物。\n"
-            + "补充规则3：默认值只能在用户明确说‘默认/随便/你决定’时启用；用户未回复不等于选择了默认。"
+            + "补充规则3：默认值只能在用户明确说‘默认/随便/你决定’时启用；用户未回复不等于选择了默认。\n"
             + "补充规则4：当你准备调用 write_temp_file 时，必须先在自然语言里输出一行“写入意图确认”，包含：relative_path + 内容摘要（前 80 字）+ 大致长度；然后再发起工具调用。relative_path 必须是文件路径（不能是空、'.'、'..'、不能以 '/' 结尾，不能指向目录）。\n"
             + (uploads_context or "")
             + "你必须把实现过程中的中间产物写入 temp 会话目录（脚本、草稿、生成物等）：\n"
