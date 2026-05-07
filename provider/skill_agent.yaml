@@ -1,16 +1,16 @@
 identity:
-  author: "lfenghx"
+  author: "numlnvis"
   name: "skill_agent"
   label:
-    en_US: "Skill_Agent"
-    zh_Hans: "Skill_Agent"
-    pt_BR: "Skill_Agent"
-    ja_JP: "Skill_Agent"
+    en_US: "Agent Processing"
+    zh_Hans: "Agent处理"
+    pt_BR: "Agent Processing"
+    ja_JP: "Agent処理"
   description:
-    en_US: "Skill_Agent is an Agent plugin that can execute tasks based on the Skill progressive disclosure mode."
+    en_US: "Agent Processing is an Agent plugin that can execute tasks based on the Skill progressive disclosure mode."
     zh_Hans: "可基于Skill渐进式披露模式执行任务的Agent插件"
-    pt_BR: "Skill_Agent é um plugin de Agent que pode executar tarefas com base no modo de divulgação progressiva de Skill."
-    ja_JP: "Skill_Agent は、Skill 進化的披露モードに基づいてタスクを実行できる Agent プラグインです。"
+    pt_BR: "Agent Processing é um plugin de Agent que pode executar tarefas com base no modo de divulgação progressiva de Skill."
+    ja_JP: "Agent処理 は、Skill 進化的披露モードに基づいてタスクを実行できる Agent プラグインです。"
   icon: "skill.svg"
 
 #########################################################################################

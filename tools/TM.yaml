@@ -1,9 +1,9 @@
 identity:
   name: "tm"
-  author: "lfenghx"
+  author: "numlnvis"
   label:
     en_US: "skill manager"
-    zh_Hans: "技能管理"
+    zh_Hans: "skill管理"
     pt_BR: "skill manager"
     ja_JP: "skill manager"
 description:

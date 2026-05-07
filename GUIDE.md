@@ -48,7 +48,6 @@ tools/              # 工具实现
   TM.py             # 技能管理工具
 utils/              # 工具模块
   skill_agent_runtime.py    # Skill 运行时
-  skill_agent_storage.py    # Storage 封装
   skill_agent_schemas.py    # Tool Schema 定义
   skill_agent_debug.py      # 日志与调试
   tools.py                  # 通用工具函数

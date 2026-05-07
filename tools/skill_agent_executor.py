@@ -15,13 +15,6 @@ def _execute_tool_call(
     session_dir: str,
     final_file_meta: dict[str, dict[str, str]],
 ) -> tuple[dict[str, Any], str | None]:
-    """
-    统一执行工具调用，消除 Function Call 与 JSON Protocol 的重复逻辑。
-
-    Returns:
-        result: 工具执行结果 dict
-        stderr_hint: 如果命令执行失败有 stderr，返回给用户看的提示文本；否则 None
-    """
     result: dict[str, Any] = {"error": f"unknown tool: {tool_name}"}
     stderr_hint: str | None = None
 
@@ -42,62 +35,31 @@ def _execute_tool_call(
         except (ValueError, TypeError):
             return default
 
-    if tool_name == "get_skill_metadata":
-        result = runtime.get_skill_metadata(str(arguments.get("skill_name") or ""))
+    if tool_name == "skill":
+        result = runtime.get_skill_metadata(str(arguments.get("name") or ""))
 
-    elif tool_name == "list_skill_files":
-        result = runtime.list_skill_files(
-            str(arguments.get("skill_name") or ""),
-            _get_int_arg(arguments, "max_depth", 2),
-        )
+    elif tool_name == "read_file":
+        skill_name = str(arguments.get("skill_name") or "").strip()
+        path = str(arguments.get("path") or "")
+        if skill_name:
+            result = runtime.read_skill_file(skill_name, path, _get_int_arg(arguments, "max_chars", 12000))
+        else:
+            result = runtime.read_file(path, _get_int_arg(arguments, "max_chars", 12000))
 
-    elif tool_name == "read_skill_file":
-        result = runtime.read_skill_file(
-            str(arguments.get("skill_name") or ""),
-            str(arguments.get("relative_path") or ""),
-            _get_int_arg(arguments, "max_chars", 12000),
-        )
-
-    elif tool_name == "run_skill_command":
-        result = runtime.run_skill_command(
-            skill_name=str(arguments.get("skill_name") or ""),
-            command=arguments.get("command") if isinstance(arguments.get("command"), list) else [],
-            cwd_relative=(str(arguments.get("cwd_relative")) if arguments.get("cwd_relative") else None),
-            auto_install=bool(arguments.get("auto_install") or False),
-        )
-        if (
-            isinstance(result, dict)
-            and result.get("returncode") is not None
-            and int(result.get("returncode") or 0) != 0
-        ):
-            stderr = str(result.get("stderr") or "").strip()
-            if stderr:
-                stderr_hint = "❌命令执行失败（stderr）：\n" + _shorten_text(_redact_path(stderr), 1200) + "\n"
-
-    elif tool_name == "get_session_context":
-        result = runtime.get_session_context()
-
-    elif tool_name == "write_temp_file":
-        result = runtime.write_temp_file(
-            str(arguments.get("relative_path") or ""),
+    elif tool_name == "write_file":
+        result = runtime.write_file(
+            str(arguments.get("path") or ""),
             str(arguments.get("content") or ""),
         )
 
-    elif tool_name == "read_temp_file":
-        result = runtime.read_temp_file(
-            str(arguments.get("relative_path") or ""),
-            _get_int_arg(arguments, "max_chars", 12000),
-        )
-
-    elif tool_name == "list_temp_files":
-        result = runtime.list_temp_files(_get_int_arg(arguments, "max_depth", 4))
-
-    elif tool_name == "run_temp_command":
-        result = runtime.run_temp_command(
-            command=arguments.get("command") if isinstance(arguments.get("command"), list) else [],
-            cwd_relative=(str(arguments.get("cwd_relative")) if arguments.get("cwd_relative") else None),
-            auto_install=bool(arguments.get("auto_install") or False),
-        )
+    elif tool_name == "bash":
+        command = arguments.get("command") if isinstance(arguments.get("command"), list) else []
+        cwd = str(arguments.get("cwd") or "").strip()
+        if cwd.startswith("skill:"):
+            skill_name = cwd[6:].strip()
+            result = runtime.run_skill_command(skill_name, command)
+        else:
+            result = runtime.run_command(command)
         if (
             isinstance(result, dict)
             and result.get("returncode") is not None
@@ -107,23 +69,18 @@ def _execute_tool_call(
             if stderr:
                 stderr_hint = "❌命令执行失败（stderr）：\n" + _shorten_text(_redact_path(stderr), 1200) + "\n"
 
-    elif tool_name == "export_temp_file":
-        temp_rel = str(arguments.get("temp_relative_path") or "")
-        workspace_rel = str(arguments.get("workspace_relative_path") or "")
-        result = runtime.export_temp_file(
-            temp_relative_path=temp_rel,
-            workspace_relative_path=workspace_rel,
-            overwrite=bool(arguments.get("overwrite") or False),
-        )
-        out_name = os.path.basename(workspace_rel) if workspace_rel else ""
+    elif tool_name == "export_file":
+        path = str(arguments.get("path") or "")
+        result = runtime.export_file(path)
+        out_name = os.path.basename(path) if path else ""
         if (
             isinstance(result, dict)
             and not result.get("error")
-            and temp_rel
+            and path
             and out_name
         ):
-            final_file_meta[temp_rel] = {
-                **(final_file_meta.get(temp_rel) or {}),
+            final_file_meta[path] = {
+                **(final_file_meta.get(path) or {}),
                 "filename": out_name,
                 "mime_type": _guess_mime_type(out_name),
             }

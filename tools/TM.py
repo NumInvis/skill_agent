@@ -159,7 +159,7 @@ class TMTool(Tool):
                     "原因：工具的 files 参数未收到文件。\n"
                     "请在工作流中检查以下配置：\n"
                     "1) 「开始」节点或「文件上传」节点已开启文件上传功能\n"
-                    "2) 「技能管理」工具节点的「files」参数已绑定文件变量（如 sys.files 或开始节点的 file 输出）\n"
+                    "2) 「skill管理」工具节点的「files」参数已绑定文件变量（如 sys.files 或开始节点的 file 输出）\n"
                     "3) 若使用 Agent/Chat 应用，请在输入框旁的「+」中上传文件\n"
                 )
                 return
@@ -296,5 +296,5 @@ class TMTool(Tool):
             )
             return
 
-        yield self.create_text_message("😑未识别的技能管理命令。支持：查看技能、新增技能、删除技能N、下载技能N。\n")
+        yield self.create_text_message("😑未识别的skill管理命令。支持：查看技能、新增技能、删除技能N、下载技能N。\n")
         return

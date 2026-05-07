@@ -1,18 +1,18 @@
 identity:
   name: "skill_agent"
-  author: "lfenghx"
+  author: "numlnvis"
   label:
-    en_US: "Skill_Agent"
-    zh_Hans: "Skill_Agent"
-    pt_BR: "Skill_Agent"
-    ja_JP: "Skill_Agent"
+    en_US: "Agent Processing"
+    zh_Hans: "Agent处理"
+    pt_BR: "Agent Processing"
+    ja_JP: "Agent処理"
 description:
   human:
-    en_US: "Skill_Agent is an Agent plugin that can execute tasks based on the Skill progressive disclosure mode."
-    zh_Hans: "可基于Skill渐进式披露模式执行任务的Agent插件"
-    pt_BR: "Skill_Agent é um plugin de Agent que pode executar tarefas com base no modo de divulgação progressiva de Skill."
-    ja_JP: "Skill_Agent は、Skill 進化的披露モードに基づいてタスクを実行できる Agent プラグインです。"
-  llm: "Skill_Agent is an Agent plugin that can execute tasks based on the Skill progressive disclosure mode"
+    en_US: "An Agent plugin that loads Skills on demand to execute tasks."
+    zh_Hans: "按需加载 Skill 执行任务的 Agent 插件"
+    pt_BR: "Um plugin de Agent que carrega Skills sob demanda para executar tarefas."
+    ja_JP: "必要に応じて Skill を読み込んでタスクを実行する Agent プラグインです。"
+  llm: "An Agent plugin that loads Skills on demand to execute tasks."
 parameters:
   - name: query
     type: string
@@ -26,7 +26,7 @@ parameters:
       en_US: "please input your question"
       zh_Hans: "请输入你想问的问题"
       pt_BR: "please input your question"
-      ja_JP: "クエリ文字列は、Skill_Agent に対して実行するタスクを指定する必要があります。"
+      ja_JP: "クエリ文字列は、Agent処理 に対して実行するタスクを指定する必要があります。"
     llm_description: "please input your question"
     form: llm
 
@@ -43,7 +43,7 @@ parameters:
       en_US: Select an LLM to run this tool.
       zh_Hans: 选择用于运行本工具的大模型
       pt_BR: Select an LLM to run this tool.
-      ja_JP: このツールを実行する LLM を選択します
+      ja_JP: "このツールを実行する LLM を選択します"
     llm_description: Select an LLM to run this tool.
     form: form
 
@@ -58,61 +58,12 @@ parameters:
       ja_JP: 最大ステップ
     human_description:
       en_US: Max reasoning/tool steps inside one call.
-      zh_Hans: 单次调用内部最多执行多少轮“思考/调用技能”
+      zh_Hans: 单次调用内部最多执行多少轮思考/调用技能
       pt_BR: Max reasoning/tool steps inside one call.
       ja_JP: 1回の呼び出し内での最大ステップ数
     llm_description: Max reasoning/tool steps inside one call.
     form: form
 
-  - name: memory_turns
-    type: number
-    required: true
-    default: 12
-    label:
-      en_US: Memory turns
-      zh_Hans: 单轮窗口
-      pt_BR: Memory turns
-      ja_JP: メモリターン
-    human_description:
-      en_US: How many recent turns to keep during the run.
-      zh_Hans: 单次调用内部保留最近多少轮上下文
-      pt_BR: How many recent turns to keep during the run.
-      ja_JP: 実行中に保持する直近ターン数
-    llm_description: How many recent turns to keep during the run.
-    form: form
-
-  - name: history_turns
-    type: number
-    required: true
-    default: 3
-    label:
-      en_US: History turns
-      zh_Hans: 记忆窗口
-      pt_BR: History turns
-      ja_JP: 履歴ターン
-    human_description:
-      en_US: How many previous runs to inject as raw transcript.
-      zh_Hans: 跨回合注入最近多少轮原文对话（0 表示不注入）
-      pt_BR: How many previous runs to inject as raw transcript.
-      ja_JP: 以前の実行から挿入する原文のターン数
-    llm_description: Inject previous turns as raw transcript for continuity.
-    form: form
-
-  - name: system_prompt
-    type: string
-    required: false
-    label:
-      en_US: System Prompt
-      zh_Hans: 系统提示词
-      pt_BR: System Prompt
-      ja_JP: システムプロンプト
-    human_description:
-      en_US: Custom system prompt for the agent
-      zh_Hans: 自定义 Agent 的系统提示词
-      pt_BR: Custom system prompt for the agent
-      ja_JP: Agent のカスタムシステムプロンプト
-    default: "你是一个基于 Skill 渐进式披露模式执行任务的智能代理"
-    form: form
 extra:
   python:
     source: tools/skill_agent.py

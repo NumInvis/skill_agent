@@ -2,146 +2,87 @@ from __future__ import annotations
 
 from typing import Any
 
-
 TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "get_skill_metadata",
-            "description": "Read SKILL.md and metadata for a specified skill package",
-            "parameters": {
-                "type": "object",
-                "properties": {"skill_name": {"type": "string"}},
-                "required": ["skill_name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_skill_files",
-            "description": "List file structure within a specified skill package",
+            "name": "skill",
+            "description": "Load a specialized skill that provides domain-specific instructions and workflows. Returns the full SKILL.md content and a list of adjacent files in the skill directory.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "skill_name": {"type": "string"},
-                    "max_depth": {"type": "integer", "default": 2},
+                    "name": {
+                        "type": "string",
+                        "description": "The name of the skill to load.",
+                    }
                 },
-                "required": ["skill_name"],
+                "required": ["name"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "read_skill_file",
-            "description": "Read file content from a skill package",
+            "name": "read_file",
+            "description": "Read a file. Provide skill_name to read from a skill directory; omit it to read from the session directory.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "skill_name": {"type": "string"},
-                    "relative_path": {"type": "string"},
-                    "max_chars": {"type": "integer", "default": 12000},
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path of the file to read.",
+                    },
+                    "skill_name": {
+                        "type": "string",
+                        "description": "Optional. If provided, reads from skills_root/<skill_name>/path.",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "default": 12000,
+                        "description": "Maximum characters to read.",
+                    },
                 },
-                "required": ["skill_name", "relative_path"],
+                "required": ["path"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "run_skill_command",
-            "description": "Execute command within skill package directory (restricted executables)",
+            "name": "write_file",
+            "description": "Write text content to a file in the session directory.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "skill_name": {"type": "string"},
-                    "command": {"type": "array", "items": {"type": "string"}},
-                    "cwd_relative": {"type": "string"},
-                    "auto_install": {"type": "boolean", "default": False},
-                },
-                "required": ["skill_name", "command"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_session_context",
-            "description": "Get skill directory and temp directory info for this session",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_temp_file",
-            "description": "Write text to temp session directory (relative path)",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "relative_path": {"type": "string", "minLength": 1},
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path within the session directory.",
+                    },
                     "content": {"type": "string"},
                 },
-                "required": ["relative_path", "content"],
+                "required": ["path", "content"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "read_temp_file",
-            "description": "Read file content from temp session directory (relative path)",
+            "name": "bash",
+            "description": "Execute a shell command. Use cwd='skill:<skill_name>' to run inside a skill directory. Omit cwd or use relative paths to run in the session directory.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "relative_path": {"type": "string", "minLength": 1},
-                    "max_chars": {"type": "integer", "default": 12000},
-                },
-                "required": ["relative_path"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_temp_files",
-            "description": "List file structure in temp session directory",
-            "parameters": {
-                "type": "object",
-                "properties": {"max_depth": {"type": "integer", "default": 4}},
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "run_temp_command",
-            "description": "Execute command within temp session directory (restricted executables)",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "array", "items": {"type": "string"}},
-                    "cwd_relative": {"type": "string"},
-                    "auto_install": {"type": "boolean", "default": False},
+                    "command": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Command and arguments as a list of strings.",
+                    },
+                    "cwd": {
+                        "type": "string",
+                        "description": "Optional working directory. Use 'skill:<skill_name>' to run in a skill directory.",
+                    },
                 },
                 "required": ["command"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "export_temp_file",
-            "description": "Mark temp session file as final deliverable (does not copy)",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "temp_relative_path": {"type": "string", "minLength": 1},
-                    "workspace_relative_path": {"type": "string", "minLength": 1},
-                    "overwrite": {"type": "boolean", "default": False},
-                },
-                "required": ["temp_relative_path", "workspace_relative_path"],
             },
         },
     },
@@ -153,16 +94,10 @@ def _validate_tool_arguments(tool_name: str, arguments: Any) -> tuple[bool, str]
         return False, "arguments must be an object (dict)"
 
     required: dict[str, list[str]] = {
-        "get_skill_metadata": ["skill_name"],
-        "list_skill_files": ["skill_name"],
-        "read_skill_file": ["skill_name", "relative_path"],
-        "run_skill_command": ["skill_name", "command"],
-        "get_session_context": [],
-        "write_temp_file": ["relative_path", "content"],
-        "read_temp_file": ["relative_path"],
-        "list_temp_files": [],
-        "run_temp_command": ["command"],
-        "export_temp_file": ["temp_relative_path", "workspace_relative_path"],
+        "skill": ["name"],
+        "read_file": ["path"],
+        "write_file": ["path", "content"],
+        "bash": ["command"],
     }
 
     if tool_name not in required:
@@ -189,5 +124,5 @@ def _validate_tool_arguments(tool_name: str, arguments: Any) -> tuple[bool, str]
 def _tool_call_retry_prompt(tool_name: str, detail: str) -> str:
     return (
         f"Your tool call `{tool_name}` has invalid arguments: {detail}. "
-        "Please retry strictly following the tool schema (arguments must include all required fields and be non-empty)."
+        "Please retry strictly following the tool schema."
     )
