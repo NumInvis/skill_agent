@@ -289,17 +289,8 @@ def _parse_tool_call(tool_call: Any) -> tuple[str | None, str | None, dict[str, 
 
 PromptToolT = TypeVar("PromptToolT")
 
-_PROMPT_MESSAGE_TOOLS: list[Any] | None = None
-_PROMPT_MESSAGE_TOOLS_CACHE_KEY: tuple[int, int] | None = None
-
 
 def _build_prompt_message_tools(tool_schemas: list[dict[str, Any]], tool_cls: type[PromptToolT]) -> list[PromptToolT]:
-    global _PROMPT_MESSAGE_TOOLS, _PROMPT_MESSAGE_TOOLS_CACHE_KEY
-
-    cache_key = (id(tool_schemas), id(tool_cls))
-    if _PROMPT_MESSAGE_TOOLS is not None and _PROMPT_MESSAGE_TOOLS_CACHE_KEY == cache_key:
-        return _PROMPT_MESSAGE_TOOLS  # type: ignore[return-value]
-
     tools: list[PromptToolT] = []
     for schema in tool_schemas:
         if not isinstance(schema, dict):
@@ -323,9 +314,6 @@ def _build_prompt_message_tools(tool_schemas: list[dict[str, Any]], tool_cls: ty
         if "required" not in parameters or not isinstance(parameters.get("required"), list):
             parameters["required"] = []
         tools.append(tool_cls(name=name.strip(), description=description, parameters=parameters))
-
-    _PROMPT_MESSAGE_TOOLS = tools  # type: ignore[assignment]
-    _PROMPT_MESSAGE_TOOLS_CACHE_KEY = cache_key
     return tools
 
 def _extract_url_and_name(file_item: Any) -> tuple[str | None, str | None]:
@@ -358,6 +346,8 @@ def _safe_filename(preferred_name: str | None, fallback_ext: str = "") -> str:
 def _resolve_file_url(url: str) -> str:
     """将相对文件 URL 拼接为完整 URL。"""
     if url.startswith("http://") or url.startswith("https://"):
+        # 将 Docker 内部地址替换为本地可访问地址（插件在容器外运行时）
+        url = url.replace("http://api:5001", "http://127.0.0.1:5001")
         return url
     base = os.environ.get("DIFY_INNER_API_URL", os.environ.get("PLUGIN_DIFY_INNER_API_URL", "http://api:5001"))
     if base and not base.endswith("/"):

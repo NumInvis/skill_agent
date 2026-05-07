@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from utils.skill_agent_constants import HISTORY_KEY_PREFIX, RESUME_KEY_PREFIX, SESSION_DIR_KEY_PREFIX
+from utils.skill_agent_debug import _logger
 from utils.tools import _safe_get
 
 
@@ -45,15 +46,16 @@ def _storage_get_text(storage: Any, key: str) -> str:
         if isinstance(val, str):
             return val
         return ""
-    except Exception:
+    except Exception as e:
+        _logger.warning(f"Storage get failed for key={key}: {e}")
         return ""
 
 
 def _storage_set_text(storage: Any, key: str, text: str) -> None:
     try:
         storage.set(key, (text or "").encode("utf-8"))
-    except Exception:
-        return
+    except Exception as e:
+        _logger.warning(f"Storage set failed for key={key}: {e}")
 
 
 def _storage_get_json(storage: Any, key: str) -> dict[str, Any]:
@@ -63,7 +65,8 @@ def _storage_get_json(storage: Any, key: str) -> dict[str, Any]:
     try:
         val = json.loads(raw)
         return val if isinstance(val, dict) else {}
-    except Exception:
+    except Exception as e:
+        _logger.warning(f"Storage JSON parse failed for key={key}: {e}")
         return {}
 
 
@@ -73,9 +76,9 @@ def _storage_set_json(storage: Any, key: str, value: dict[str, Any] | None) -> N
         return
     try:
         _storage_set_text(storage, key, json.dumps(value, ensure_ascii=False))
-    except Exception:
+    except Exception as e:
+        _logger.warning(f"Storage JSON set failed for key={key}: {e}")
         _storage_set_text(storage, key, "")
-        return
 
 
 def _append_history_turn(

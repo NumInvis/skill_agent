@@ -1,15 +1,32 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from utils.tools import _safe_get
 
+# Try to use Dify plugin logger handler; fallback to StreamHandler if unavailable
+try:
+    from dify_plugin.config.logger_format import plugin_logger_handler
+
+    _logger = logging.getLogger("skill_agent")
+    if not _logger.handlers:
+        _logger.addHandler(plugin_logger_handler)
+        _logger.setLevel(logging.DEBUG)
+except Exception:
+    _logger = logging.getLogger("skill_agent")
+    if not _logger.handlers:
+        _handler = logging.StreamHandler()
+        _handler.setFormatter(logging.Formatter("[skill][%(levelname)s] %(message)s"))
+        _logger.addHandler(_handler)
+        _logger.setLevel(logging.DEBUG)
+
 
 def _dbg(msg: str) -> None:
     try:
-        print(f"[skill][debug] {msg}", flush=True)
+        _logger.debug(msg)
     except Exception:
-        return
+        print(f"[skill][debug] {msg}", flush=True)
 
 
 def _model_brief(model_config: Any) -> str:

@@ -1,137 +1,83 @@
-# Dify Plugin Development Guide
+# Skill Agent 开发指南
 
-Welcome to Dify plugin development! This guide will help you get started quickly.
+## 项目概述
 
-## Plugin Types
+Skill Agent 是一个 Dify 工具插件，基于"渐进式披露（Progressive Disclosure）"模式设计，让大模型按需读取技能说明书（SKILL.md），执行命令并交付文件。
 
-Dify plugins extend three main capabilities:
+## 技术栈
 
-| Type | Description | Example |
-|------|-------------|---------|
-| **Tool** | Perform specific tasks | Google Search, Stable Diffusion |
-| **Model** | AI model integrations | OpenAI, Anthropic |
-| **Endpoint** | HTTP services | Custom APIs, integrations |
+- **Python 3.12**
+- **Dify Plugin SDK** (`dify_plugin>=0.6.2`)
+- 依赖：见 `requirements.txt`
 
-You can create:
-- **Tool**: Tool provider with optional endpoints (e.g., Discord bot)
-- **Model**: Model provider only
-- **Extension**: Simple HTTP service
+## 本地开发
 
-## Setup
+### 1. 环境准备
 
-### Requirements
-- Python 3.11+
-- Dependencies: `pip install -r requirements.txt`
-
-## Development Process
-
-<details>
-<summary><b>1. Manifest Structure</b></summary>
-
-Edit `manifest.yaml` to describe your plugin:
-
-```yaml
-version: 0.1.0                  # Required: Plugin version
-type: plugin                    # Required: plugin or bundle
-author: YourOrganization        # Required: Organization name
-label:                          # Required: Multi-language names
-  en_US: Plugin Name
-  zh_Hans: 插件名称
-created_at: 2023-01-01T00:00:00Z # Required: Creation time (RFC3339)
-icon: assets/icon.png           # Required: Icon path
-
-# Resources and permissions
-resource:
-  memory: 268435456            # Max memory (bytes)
-  permission:
-    tool:
-      enabled: true            # Tool permission
-    model:
-      enabled: true            # Model permission
-      llm: true
-      text_embedding: false
-      # Other model types...
-    # Other permissions...
-
-# Extensions definition
-plugins:
-  tools:
-    - tools/my_tool.yaml       # Tool definition files
-  models:
-    - models/my_model.yaml     # Model definition files
-  endpoints:
-    - endpoints/my_api.yaml    # Endpoint definition files
-
-# Runtime metadata
-meta:
-  version: 0.0.1               # Manifest format version
-  arch:
-    - amd64
-    - arm64
-  runner:
-    language: python
-    version: "3.12"
-    entrypoint: main
-```
-
-**Restrictions:**
-- Cannot extend both tools and models
-- Must have at least one extension
-- Cannot extend both models and endpoints
-- Limited to one supplier per extension type
-</details>
-
-<details>
-<summary><b>2. Implementation Examples</b></summary>
-
-Study these examples to understand plugin implementation:
-
-- [OpenAI](https://github.com/langgenius/dify-plugin-sdks/tree/main/python/examples/openai) - Model provider
-- [Google Search](https://github.com/langgenius/dify-plugin-sdks/tree/main/python/examples/google) - Tool provider
-- [Neko](https://github.com/langgenius/dify-plugin-sdks/tree/main/python/examples/neko) - Endpoint group
-</details>
-
-<details>
-<summary><b>3. Testing & Debugging</b></summary>
-
-1. Copy `.env.example` to `.env` and configure:
-   ```
-   INSTALL_METHOD=remote
-   REMOTE_INSTALL_URL=debug.dify.ai:5003
-   REMOTE_INSTALL_KEY=your-debug-key
-   ```
-
-2. Run your plugin: 
-   ```bash
-   python -m main
-   ```
-
-3. Refresh your Dify instance to see the plugin (marked as "debugging")
-</details>
-
-<details>
-<summary><b>4. Publishing</b></summary>
-
-#### Manual Packaging
 ```bash
-dify-plugin plugin package ./YOUR_PLUGIN_DIR
+# 安装依赖
+pip install -r requirements.txt
+
+# 复制环境配置
+cp .env.example .env
+# 编辑 .env 填入你的远程调试配置
 ```
 
-#### Automated GitHub Workflow
+### 2. 远程调试
 
-Configure GitHub Actions to automate PR creation:
+在 Dify 后台 → 插件管理 → 点击 bug 图标，复制 API Key 和 Host 到 `.env`：
 
-1. Create a Personal Access Token for your forked repository
-2. Add it as `PLUGIN_ACTION` secret in your source repo
-3. Create `.github/workflows/plugin-publish.yml`
+```bash
+INSTALL_METHOD=remote
+REMOTE_INSTALL_HOST=your-dify-host
+REMOTE_INSTALL_PORT=5003
+REMOTE_INSTALL_KEY=your-debug-key
+```
 
-When you create a release, the action will:
-- Package your plugin
-- Create a PR to your fork
+启动插件：
+```bash
+python -m main
+```
 
-[Detailed workflow documentation](https://docs.dify.ai/plugins/publish-plugins/plugin-auto-publish-pr)
-</details>
+### 3. 项目结构说明
 
-## Privacy Policy
+```
+provider/           # Provider 定义与凭证校验
+tools/              # 工具实现
+  skill_agent.py    # 主 Agent 逻辑
+  TM.py             # 技能管理工具
+utils/              # 工具模块
+  skill_agent_runtime.py    # Skill 运行时
+  skill_agent_storage.py    # Storage 封装
+  skill_agent_schemas.py    # Tool Schema 定义
+  skill_agent_debug.py      # 日志与调试
+  tools.py                  # 通用工具函数
+```
 
-If publishing to the Marketplace, provide a privacy policy in [PRIVACY.md](PRIVACY.md).
+### 4. 打包发布
+
+```bash
+# 使用官方 CLI
+dify plugin package . -o skill_agent.difypkg
+
+# 或使用 Python fallback
+python scripts/package_plugin.py . -o skill_agent.difypkg
+```
+
+### 5. 发布到 Marketplace
+
+创建 GitHub Release 后，`.github/workflows/plugin-publish.yml` 会自动：
+1. 打包插件
+2. 向 `langgenius/dify-plugins` 提交 PR
+
+## 核心设计原则
+
+1. **渐进式披露**：先读索引 → 再读 SKILL.md → 再读文件 → 再执行命令
+2. **安全第一**：命令白名单、路径遍历防护、文件名过滤
+3. **状态持久化**：利用 Dify Storage 支持多轮对话和断点续跑
+
+## 常见问题
+
+1. **模型不输出 / 不调用工具**：检查模型是否支持 Function Call；fallback JSON Protocol 需要模型遵循 prompt 中的格式要求
+2. **文件上传失败**：检查 Dify `.env` 中 `FILES_URL` 是否配置正确
+3. **命令执行失败**：确认 plugin_daemon 容器中已安装所需运行时（Node.js 等）

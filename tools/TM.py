@@ -31,7 +31,7 @@ def _resolve_file_url(url: str) -> str:
 
 
 def get_file_content(url: str, timeout: int = 30) -> bytes:
-    full_url = _resolve_file_url(url)
+    full_url = _resolve_file_url(url).replace("http://api:5001", "http://127.0.0.1:5001")
     try:
         req = Request(full_url, headers={"User-Agent": "dify-plugin-skill/1.0"})
         with urlopen(req, timeout=timeout) as resp:
