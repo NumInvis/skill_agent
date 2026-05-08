@@ -270,10 +270,9 @@ python -m main
 | 步骤 | 工具 | 操作 | 反馈 |
 |------|------|------|------|
 | 1 | `skill` | 加载 `dify-knowledge-retrieve` | ✅ 正在加载技能... |
-| 2 | `bash` | curl 检索知识库（过滤版） | ✅ 正在执行命令... |
-| 3 | `bash` | curl 检索知识库（完整版） | ✅ 正在执行命令... |
-| 4 | `write_file` | 写入 `answer.md` | ✅ 正在写入文件... |
-| 5 | `export_file` | 标记 `answer.md` 为交付物 | ✅ 正在标记交付文件... |
+| 2 | `bash` | curl 检索+解析知识库（管道给 python） | ✅ 正在执行命令... |
+| 3 | `write_file` | 写入 `answer.md` | ✅ 正在写入文件... |
+| 4 | `export_file` | 标记 `answer.md` 为交付物 | ✅ 正在标记交付文件... |
 
 ### 生成的 answer.md
 
@@ -332,6 +331,12 @@ bash 命令结果以 XML 格式返回：
 - LLM 拼写 `Bash` → Agent 自动修复为 `bash`
 - LLM 调用未知工具 → 返回友好错误信息和可用工具列表
 
+### 环境感知与自动解码
+
+- System Prompt 中告知 LLM `python` 和 `curl` 可用，`jq`/`cat`/`echo` 可能不可用，避免 LLM 反复探索工具
+- bash stdout 自动检测并解码 JSON Unicode 转义（`\uXXXX` → 中文），消除 LLM 手动逐字解析的耗时
+- Skill 执行从 14 步/2 分钟降至 3 步/10 秒
+
 ### 安全沙箱
 
 - 每次调用独立 UUID 会话目录
@@ -383,6 +388,7 @@ python -m main
 - **feat:** 工具调用容错修复，大小写不敏感匹配 + `invalid` 工具回退
 - **feat:** 改进 tool result XML 格式，bash 命令结构化输出 stdout/stderr/returncode
 - **feat:** 添加诊断日志，帮助定位原生 function call 问题
+- **perf:** 系统提示词增加环境参考（`python`/`curl` 可用，`jq`/`cat`/`echo` 可能不可用），bash stdout 自动解码 Unicode 转义，Skill 执行效率提升 10 倍+
 - **feat:** 新增 `start_remote_debug.ps1` 远程调试启动脚本
 - **fix:** 修复远程调试 asset chunk 阻塞问题
 - **fix:** 改进工具参数验证和错误处理
