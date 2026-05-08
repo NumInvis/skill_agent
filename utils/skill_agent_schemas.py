@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -73,9 +74,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "type": "object",
                 "properties": {
                     "command": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Command and arguments as a list of strings.",
+                        "type": "string",
+                        "description": "Shell command to execute. Can be a single string (e.g. 'echo hello') or a JSON array of strings (e.g. [\"echo\", \"hello\"]).",
                     },
                     "cwd": {
                         "type": "string",
@@ -83,6 +83,40 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     },
                 },
                 "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "export_file",
+            "description": "Mark a file in the session directory as a final deliverable to be returned to the user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path of the file to mark as final output.",
+                    }
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "invalid",
+            "description": "Called automatically when a tool call is invalid or uses an unknown tool name. Reports the error so the agent can self-correct.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Explanation of what went wrong with the tool call.",
+                    }
+                },
+                "required": ["reason"],
             },
         },
     },
@@ -112,7 +146,7 @@ def _validate_tool_arguments(tool_name: str, arguments: Any) -> tuple[bool, str]
         if isinstance(val, str) and not val.strip():
             missing.append(key)
             continue
-        if key == "command" and (not isinstance(val, list) or not val):
+        if key == "command" and not val:
             missing.append(key)
             continue
 
@@ -126,3 +160,62 @@ def _tool_call_retry_prompt(tool_name: str, detail: str) -> str:
         f"Your tool call `{tool_name}` has invalid arguments: {detail}. "
         "Please retry strictly following the tool schema."
     )
+
+
+def _build_tool_result_text(
+    *,
+    call_id: str,
+    tool_name: str,
+    result: dict[str, Any],
+    is_error: bool = False,
+    error_detail: str = "",
+) -> str:
+    """Build a user-visible text that carries tool result.
+
+    Because some model providers (e.g. openai_api_compatible with qwen) fail
+    when ``tool`` role messages are present, we embed the result in a plain
+    ``user`` message.  The format is explicit so the LLM can correlate the
+    result with the previous tool_call.
+    """
+    status = "error" if is_error else "success"
+    attrs = f'id="{call_id or ""}" name="{tool_name}" status="{status}"'
+
+    # bash 命令额外标注 returncode
+    if tool_name == "bash" and isinstance(result, dict) and result.get("returncode") is not None:
+        attrs += f' returncode="{result["returncode"]}"'
+
+    lines: list[str] = [f"<tool_result {attrs}>"]
+
+    if is_error and error_detail:
+        lines.append(f"<error>{error_detail}</error>")
+
+    # 如果是 bash 命令且有 stdout/stderr，结构化输出
+    if tool_name == "bash" and isinstance(result, dict):
+        stdout = str(result.get("stdout") or "")
+        stderr = str(result.get("stderr") or "")
+        if stdout:
+            lines.append(f"<stdout_length>{len(stdout)} chars</stdout_length>")
+            lines.append("<stdout>")
+            lines.append(stdout[:4000])
+            if len(stdout) > 4000:
+                lines.append(f"... ({len(stdout) - 4000} more chars truncated)")
+            lines.append("</stdout>")
+        if stderr:
+            lines.append("<stderr>")
+            lines.append(stderr[:2000])
+            if len(stderr) > 2000:
+                lines.append(f"... ({len(stderr) - 2000} more chars truncated)")
+            lines.append("</stderr>")
+        if not stdout and not stderr and result.get("returncode") is not None:
+            lines.append("<note>Command executed successfully with no output.</note>")
+        if not stdout and not stderr and result.get("error"):
+            lines.append(json.dumps(result, ensure_ascii=False, indent=2))
+    elif tool_name == "skill" and isinstance(result, dict) and result.get("output"):
+        # skill 已经格式化为 XML，直接输出
+        lines.append(str(result["output"]))
+    else:
+        lines.append(json.dumps(result, ensure_ascii=False, indent=2))
+
+    lines.append("</tool_result>")
+    lines.append("请根据上述工具结果继续完成任务。")
+    return "\n".join(lines)

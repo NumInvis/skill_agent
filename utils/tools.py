@@ -240,6 +240,53 @@ def _extract_tool_calls(response: Any) -> list[Any]:
         return tool_calls
     return []
 
+def _extract_json_tool_calls_from_text(text: str) -> list[dict[str, Any]]:
+    """Extract tool calls from raw text (code-block or bare JSON fallback)."""
+    tool_calls: list[dict[str, Any]] = []
+    if not text:
+        return tool_calls
+
+    def _add_if_valid(data: Any) -> None:
+        if not isinstance(data, dict):
+            return
+        name = data.get("name")
+        arguments = data.get("arguments")
+        if name and isinstance(name, str):
+            tool_calls.append({
+                "id": f"json_{uuid.uuid4().hex[:8]}",
+                "type": "function",
+                "function": {
+                    "name": name.strip(),
+                    "arguments": json.dumps(arguments, ensure_ascii=False) if arguments is not None else "{}",
+                },
+            })
+
+    # 1) Code-block format: ```json {...} ```
+    for block in re.findall(r"```json\s*(.*?)\s*```", text, re.DOTALL):
+        try:
+            _add_if_valid(json.loads(block))
+        except Exception:
+            continue
+
+    # 2) Bare JSON objects — use JSONDecoder to handle nested structures correctly
+    if not tool_calls:
+        decoder = json.JSONDecoder()
+        idx = 0
+        while idx < len(text):
+            brace = text.find("{", idx)
+            if brace == -1:
+                break
+            try:
+                obj, end = decoder.raw_decode(text, brace)
+                if isinstance(obj, dict):
+                    _add_if_valid(obj)
+                idx = brace + end
+            except (json.JSONDecodeError, ValueError):
+                idx = brace + 1
+
+    return tool_calls
+
+
 def _parse_tool_call(tool_call: Any) -> tuple[str | None, str | None, dict[str, Any]]:
     call_id = _safe_get(tool_call, "id")
     function_info = _safe_get(tool_call, "function") or {}

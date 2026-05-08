@@ -11,6 +11,7 @@ from utils.tools import (
     _build_prompt_message_tools,
     _download_file_content,
     _extract_first_json_object,
+    _extract_json_tool_calls_from_text,
     _extract_url_and_name,
     _guess_mime_type,
     _infer_ext_from_url,
@@ -26,7 +27,7 @@ from utils.tools import (
 from utils.skill_agent_debug import _dbg, _model_brief
 from utils.skill_agent_exec import _detect_skills_root
 from utils.skill_agent_runtime import _AgentRuntime
-from utils.skill_agent_schemas import TOOL_SCHEMAS, _tool_call_retry_prompt, _validate_tool_arguments
+from utils.skill_agent_schemas import TOOL_SCHEMAS, _build_tool_result_text, _validate_tool_arguments
 from utils.skill_agent_uploads import _build_uploads_context
 
 from dify_plugin import Tool
@@ -34,7 +35,6 @@ from dify_plugin.entities.model.message import (
     AssistantPromptMessage,
     PromptMessageTool,
     SystemPromptMessage,
-    ToolPromptMessage,
     UserPromptMessage,
 )
 from dify_plugin.entities.tool import ToolInvokeMessage
@@ -263,6 +263,11 @@ class SkillAgentTool(Tool):
                     return True
                 if not isinstance(obj, dict):
                     return True
+                # 检测 {"name": "...", "arguments": {...}} 工具 JSON 格式
+                if "name" in obj and "arguments" in obj and isinstance(obj.get("name"), str):
+                    known_tools = {"skill", "read_file", "write_file", "bash", "export_file", "invalid"}
+                    if obj["name"] in known_tools:
+                        return False
                 t = obj.get("type")
                 return t not in {"tool", "final"}
 
@@ -297,6 +302,11 @@ class SkillAgentTool(Tool):
                     if text:
                         text_parts.append(text)
                     combined_text = "".join(text_parts).strip()
+                    if combined_text and not saw_tool_calls:
+                        json_tool_calls = _extract_json_tool_calls_from_text(combined_text)
+                        if json_tool_calls:
+                            tool_calls_all.extend(json_tool_calls)
+                            saw_tool_calls = True
                     if combined_text and not saw_tool_calls and should_emit_user_text(combined_text):
                         yield from emit_typing(combined_text)
                     return combined_text, tool_calls_all, nontext_content, chunks_count, streamed_any
@@ -306,10 +316,23 @@ class SkillAgentTool(Tool):
                     delta = _safe_get(chunk, "delta") or {}
                     msg = _safe_get(delta, "message") or {}
                     content = _safe_get(msg, "content")
+                    tc = _safe_get(msg, "tool_calls") or []
+
+                    # 诊断日志：打印 chunk 结构（帮助定位原生 function call 问题）
+                    if chunks_count <= 3 or (isinstance(tc, list) and tc):
+                        chunk_type = type(chunk).__name__
+                        delta_type = type(delta).__name__
+                        msg_type = type(msg).__name__
+                        tc_len = len(tc) if isinstance(tc, list) else "N/A"
+                        content_preview = _shorten_text(str(content)[:80], 80) if content else "None"
+                        _dbg(
+                            f"chunk#{chunks_count} type={chunk_type} delta={delta_type} msg={msg_type} "
+                            f"content_preview={content_preview} tool_calls_len={tc_len}"
+                        )
+
                     t, parts = _split_message_content(content)
                     if parts:
                         nontext_content.extend(parts)
-                    tc = _safe_get(msg, "tool_calls") or []
                     if isinstance(tc, list) and tc:
                         tool_calls_all.extend(tc)
                         if not saw_tool_calls:
@@ -329,6 +352,11 @@ class SkillAgentTool(Tool):
                                     streamed_any = True
                                 emitted_len = len(combined_text_live)
                 combined_text = "".join(text_parts).strip()
+                if combined_text and not saw_tool_calls:
+                    json_tool_calls = _extract_json_tool_calls_from_text(combined_text)
+                    if json_tool_calls:
+                        tool_calls_all.extend(json_tool_calls)
+                        saw_tool_calls = True
                 if emitted_prefix:
                     yield self.create_text_message("\n\n")
                 elif combined_text and not saw_tool_calls and should_emit_user_text(combined_text):
@@ -388,13 +416,14 @@ class SkillAgentTool(Tool):
                             }
                             _dbg(f"tool_result name={tool_name} result={_shorten_text(result, 700)}")
                             messages.append(
-                                ToolPromptMessage(
-                                    tool_call_id=str(call_id or ""),
-                                    name=tool_name,
-                                    content=json.dumps(result, ensure_ascii=False),
+                                UserPromptMessage(
+                                    content=_build_tool_result_text(
+                                        call_id=call_id, tool_name=tool_name,
+                                        result=result, is_error=True,
+                                        error_detail=arg_detail,
+                                    )
                                 )
                             )
-                            messages.append(UserPromptMessage(content=_tool_call_retry_prompt(tool_name, arg_detail)))
                             continue
 
                         if tool_name == "skill":
@@ -431,12 +460,40 @@ class SkillAgentTool(Tool):
                         if stderr_hint:
                             yield self.create_text_message(stderr_hint)
 
+                        # 工具调用容错修复（大小写不敏感匹配）
+                        if isinstance(result, dict) and str(result.get("error") or "").startswith("unknown tool"):
+                            known_names = [str(s.get("function", {}).get("name", "")) for s in TOOL_SCHEMAS]
+                            matched = None
+                            for known in known_names:
+                                if known and tool_name.lower() == known.lower():
+                                    matched = known
+                                    break
+                            if matched and matched != tool_name:
+                                _dbg(f"tool_repair '{tool_name}' -> '{matched}'")
+                                tool_name = matched
+                                result, stderr_hint = _execute_tool_call(
+                                    runtime, tool_name, arguments,
+                                    session_dir=session_dir,
+                                    final_file_meta=final_file_meta,
+                                )
+                                if stderr_hint:
+                                    yield self.create_text_message(stderr_hint)
+                            elif not matched:
+                                available = ", ".join(n for n in known_names if n)
+                                result = {
+                                    "error": "invalid_tool_call",
+                                    "tool": tool_name,
+                                    "reason": f"Unknown tool '{tool_name}'. Available tools: {available}",
+                                }
+                                _dbg(f"tool_invalid name={tool_name} available={available}")
+
                         _dbg(f"tool_result name={tool_name} result={_shorten_text(result, 700)}")
                         messages.append(
-                            ToolPromptMessage(
-                                tool_call_id=str(call_id or ""),
-                                name=tool_name,
-                                content=json.dumps(result, ensure_ascii=False),
+                            UserPromptMessage(
+                                content=_build_tool_result_text(
+                                    call_id=call_id, tool_name=tool_name,
+                                    result=result, is_error=False,
+                                )
                             )
                         )
                     continue
@@ -584,7 +641,20 @@ class SkillAgentTool(Tool):
             "- export_file(path): 标记 session 目录中的文件为最终交付物",
             uploads_context or "",
             "",
-            "如果模型支持 function call，请直接发起工具调用。",
+            "【重要】工具调用规则：",
+            "1. 优先使用 function call（工具调用）发起动作。",
+            "2. 如果模型不支持 function call，允许输出如下 JSON 代码块作为备选：",
+            '   ```json',
+            '   {"name": "<tool_name>", "arguments": {<args>}}',
+            '   ```',
+            "3. 每次工具执行后，结果会以如下格式出现在后续的 user message 中：",
+            '   <tool_result id="<call_id>" name="<tool_name>" status="success|error">',
+            '   {...结果 JSON...}',
+            '   </tool_result>',
+            "   请根据 tool_result 中的结果继续完成任务。",
+            "4. 执行命令时尽量一次获取完整输出，不要先过滤再补充。如果第一次命令失败或结果为空，再尝试其他方式。",
+            "5. 加载 skill 后，仔细阅读 SKILL.md 中的指令，并按其说明执行任务。skill 中的相对路径（如 scripts/、reference/）均相对于 skill 目录。",
+            "6. 不要重复执行相同或高度相似的工具调用。如果上一步已经获取了所需信息，直接利用该信息继续，不要重新获取。"
         ]
         return "\n".join(lines)
 

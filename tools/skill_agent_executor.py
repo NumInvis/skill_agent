@@ -36,7 +36,35 @@ def _execute_tool_call(
             return default
 
     if tool_name == "skill":
-        result = runtime.get_skill_metadata(str(arguments.get("name") or ""))
+        raw = runtime.get_skill_metadata(str(arguments.get("name") or ""))
+        if raw.get("error"):
+            result = raw
+        else:
+            skill_name = str(raw.get("skill") or "")
+            meta = raw.get("metadata") or {}
+            content = str(raw.get("skill_md") or "")
+            files = raw.get("files") or []
+            skill_path = runtime.skills_root
+            if skill_path:
+                skill_path = os.path.join(skill_path, skill_name)
+            file_lines = "\n".join(f"  <file>{_redact_path(f)}</file>" for f in files) if files else "  (no additional files)"
+            result = {
+                "output": (
+                    f'<skill_content name="{skill_name}">\n'
+                    f"# Skill: {skill_name}\n"
+                    f"\n"
+                    f"{content.strip()}\n"
+                    f"\n"
+                    f"Base directory for this skill: {skill_path or '(unknown)'}\n"
+                    f"Relative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.\n"
+                    f"Note: file list is sampled.\n"
+                    f"\n"
+                    f"<skill_files>\n"
+                    f"{file_lines}\n"
+                    f"</skill_files>\n"
+                    f"</skill_content>"
+                )
+            }
 
     elif tool_name == "read_file":
         skill_name = str(arguments.get("skill_name") or "").strip()
@@ -53,7 +81,17 @@ def _execute_tool_call(
         )
 
     elif tool_name == "bash":
-        command = arguments.get("command") if isinstance(arguments.get("command"), list) else []
+        raw_cmd = arguments.get("command")
+        if isinstance(raw_cmd, list):
+            command = [str(x) for x in raw_cmd if x is not None]
+        elif isinstance(raw_cmd, str) and raw_cmd.strip():
+            import shlex
+            try:
+                command = shlex.split(raw_cmd.strip())
+            except Exception:
+                command = [raw_cmd.strip()]
+        else:
+            command = []
         cwd = str(arguments.get("cwd") or "").strip()
         if cwd.startswith("skill:"):
             skill_name = cwd[6:].strip()
