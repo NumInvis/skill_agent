@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -98,6 +99,17 @@ def _execute_tool_call(
             result = runtime.run_skill_command(skill_name, command)
         else:
             result = runtime.run_command(command)
+        if isinstance(result, dict):
+            stdout = result.get("stdout")
+            if stdout and isinstance(stdout, str) and r"\u" in stdout:
+                try:
+                    decoded = json.loads(stdout)
+                    result["stdout"] = json.dumps(decoded, ensure_ascii=False, indent=2)
+                except json.JSONDecodeError:
+                    try:
+                        result["stdout"] = json.loads(f'"{stdout}"')
+                    except json.JSONDecodeError:
+                        pass
         if (
             isinstance(result, dict)
             and result.get("returncode") is not None
@@ -105,7 +117,7 @@ def _execute_tool_call(
         ):
             stderr = str(result.get("stderr") or "").strip()
             if stderr:
-                stderr_hint = "❌命令执行失败（stderr）：\n" + _shorten_text(_redact_path(stderr), 1200) + "\n"
+                stderr_hint = "❌Command failed (stderr):\n" + _shorten_text(_redact_path(stderr), 1200) + "\n"
 
     elif tool_name == "export_file":
         path = str(arguments.get("path") or "")

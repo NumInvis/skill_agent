@@ -180,7 +180,7 @@ def _build_tool_result_text(
     status = "error" if is_error else "success"
     attrs = f'id="{call_id or ""}" name="{tool_name}" status="{status}"'
 
-    # bash 命令额外标注 returncode
+    # Annotate returncode for bash commands
     if tool_name == "bash" and isinstance(result, dict) and result.get("returncode") is not None:
         attrs += f' returncode="{result["returncode"]}"'
 
@@ -189,7 +189,7 @@ def _build_tool_result_text(
     if is_error and error_detail:
         lines.append(f"<error>{error_detail}</error>")
 
-    # 如果是 bash 命令且有 stdout/stderr，结构化输出
+    # Structured output for bash commands with stdout/stderr
     if tool_name == "bash" and isinstance(result, dict):
         stdout = str(result.get("stdout") or "")
         stderr = str(result.get("stderr") or "")
@@ -211,11 +211,11 @@ def _build_tool_result_text(
         if not stdout and not stderr and result.get("error"):
             lines.append(json.dumps(result, ensure_ascii=False, indent=2))
     elif tool_name == "skill" and isinstance(result, dict) and result.get("output"):
-        # skill 已经格式化为 XML，直接输出
+        # Skill already formatted as XML, output directly
         lines.append(str(result["output"]))
     else:
         lines.append(json.dumps(result, ensure_ascii=False, indent=2))
 
     lines.append("</tool_result>")
-    lines.append("请根据上述工具结果继续完成任务。")
+    lines.append("Continue the task based on the tool results above.")
     return "\n".join(lines)

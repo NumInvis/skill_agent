@@ -58,7 +58,7 @@ class SkillAgentTool(Tool):
         skills_root = _detect_skills_root(tool_parameters.get("skills_root"))
 
         if not query or not isinstance(query, str):
-            yield self.create_text_message("❌缺少 query 参数\n")
+            yield self.create_text_message("❌Missing query parameter\n")
             return
         user_input = str(query)
 
@@ -83,13 +83,13 @@ class SkillAgentTool(Tool):
             for item in file_items:
                 url, name = _extract_url_and_name(item)
                 if not url:
-                    yield self.create_text_message("❌未能获取上传文件 URL（files[i].url）。\n")
+                    yield self.create_text_message("❌Failed to get upload file URL (files[i].url).\n")
                     return
                 try:
                     download_url = str(url).replace("http://api:5001", "http://127.0.0.1:5001")
                     content = _download_file_content(download_url, timeout=45)
                 except Exception as e:
-                    yield self.create_text_message(f"❌文件下载失败：{str(e)}\n")
+                    yield self.create_text_message(f"❌File download failed: {str(e)}\n")
                     return
                 ext = _infer_ext_from_url(str(url))
                 filename = _safe_filename(str(name) if name else None, fallback_ext=ext)
@@ -98,7 +98,7 @@ class SkillAgentTool(Tool):
                     with open(abs_path, "wb") as f:
                         f.write(content)
                 except Exception as e:
-                    yield self.create_text_message(f"❌保存上传文件失败：{str(e)}\n")
+                    yield self.create_text_message(f"❌Failed to save uploaded file: {str(e)}\n")
                     return
 
         uploads_context = _build_uploads_context(session_dir)
@@ -239,7 +239,7 @@ class SkillAgentTool(Tool):
                 nonlocal streamed_any
                 if not text:
                     return
-                tagged = "\n【🤖Agent处理】\n" + text.strip() + "\n\n"
+                tagged = "\n【🤖Agent Processing】\n" + text.strip() + "\n\n"
                 step = max(1, int(typing_chunk))
                 for i in range(0, len(tagged), step):
                     yield self.create_text_message(tagged[i : i + step])
@@ -263,7 +263,7 @@ class SkillAgentTool(Tool):
                     return True
                 if not isinstance(obj, dict):
                     return True
-                # 检测 {"name": "...", "arguments": {...}} 工具 JSON 格式
+                # Detect {"name": "...", "arguments": {...}} tool JSON format
                 if "name" in obj and "arguments" in obj and isinstance(obj.get("name"), str):
                     known_tools = {"skill", "read_file", "write_file", "bash", "export_file", "invalid"}
                     if obj["name"] in known_tools:
@@ -318,7 +318,7 @@ class SkillAgentTool(Tool):
                     content = _safe_get(msg, "content")
                     tc = _safe_get(msg, "tool_calls") or []
 
-                    # 诊断日志：打印 chunk 结构（帮助定位原生 function call 问题）
+                    # Diagnostic log: print chunk structure (helps debug native function call issues)
                     if chunks_count <= 3 or (isinstance(tc, list) and tc):
                         chunk_type = type(chunk).__name__
                         delta_type = type(delta).__name__
@@ -342,7 +342,7 @@ class SkillAgentTool(Tool):
                         combined_text_live = "".join(text_parts).strip()
                         if combined_text_live and not saw_tool_calls and should_emit_user_text(combined_text_live):
                             if not emitted_prefix:
-                                yield self.create_text_message("\n【🤖Agent处理】\n")
+                                yield self.create_text_message("\n【🤖Agent Processing】\n")
                                 emitted_prefix = True
                             new = combined_text_live[emitted_len:]
                             if new:
@@ -377,16 +377,16 @@ class SkillAgentTool(Tool):
                     msg = str(e)
                     if "NameResolutionError" in msg or "Failed to resolve" in msg:
                         yield self.create_text_message(
-                            "❌ LLM 调用失败：无法解析模型服务域名（DNS/网络问题）。\n"
-                            "当前报错信息：\n"
+                            "❌LLM call failed: unable to resolve model service domain (DNS/network issue).\n"
+                            "Error details:\n"
                             + msg
-                            + "\n\n请检查：\n"
-                            + "1) 运行插件的环境是否能访问公网/是否需要代理\n"
-                            + "2) DNS 是否可用\n"
-                            + "3) Dify 的模型供应商网络出站是否被限制\n"
+                            + "\n\nPlease check:\n"
+                            + "1) Whether the plugin environment can access the public network / needs a proxy\n"
+                            + "2) Whether DNS is working\n"
+                            + "3) Whether Dify's model provider network egress is restricted\n"
                         )
                     else:
-                        yield self.create_text_message("❌ LLM 调用失败：\n" + msg)
+                        yield self.create_text_message("❌LLM call failed:\n" + msg)
                     return
 
                 _dbg(
@@ -428,26 +428,26 @@ class SkillAgentTool(Tool):
 
                         if tool_name == "skill":
                             yield self.create_text_message(
-                                f"✅正在加载技能《{str(arguments.get('name') or '')}》…\n"
+                                f"✅Loading skill: {str(arguments.get('name') or '')}…\n"
                             )
                         elif tool_name == "read_file":
                             skill_name = str(arguments.get("skill_name") or "")
                             path = str(arguments.get("path") or "")
                             if skill_name:
                                 yield self.create_text_message(
-                                    f"✅正在读取技能《{skill_name}》文件：{path}…\n"
+                                    f"✅Reading skill file: {path}…\n"
                                 )
                             else:
-                                yield self.create_text_message(f"✅正在读取文件：{path}…\n")
+                                yield self.create_text_message(f"✅Reading file: {path}…\n")
                         elif tool_name == "write_file":
                             yield self.create_text_message(
-                                f"✅正在写入文件：{str(arguments.get('path') or '')}…\n"
+                                f"✅Writing file: {str(arguments.get('path') or '')}…\n"
                             )
                         elif tool_name == "bash":
-                            yield self.create_text_message("✅正在执行命令…\n")
+                            yield self.create_text_message("✅Executing command…\n")
                         elif tool_name == "export_file":
                             yield self.create_text_message(
-                                f"✅正在标记交付文件：{str(arguments.get('path') or '')}…\n"
+                                f"✅Marking deliverable: {str(arguments.get('path') or '')}…\n"
                             )
 
                         from tools.skill_agent_executor import _execute_tool_call
@@ -460,7 +460,7 @@ class SkillAgentTool(Tool):
                         if stderr_hint:
                             yield self.create_text_message(stderr_hint)
 
-                        # 工具调用容错修复（大小写不敏感匹配）
+                        # Tool call fault tolerance (case-insensitive matching)
                         if isinstance(result, dict) and str(result.get("error") or "").startswith("unknown tool"):
                             known_names = [str(s.get("function", {}).get("name", "")) for s in TOOL_SCHEMAS]
                             matched = None
@@ -504,11 +504,11 @@ class SkillAgentTool(Tool):
                     if empty_responses < 3:
                         messages.append(
                             UserPromptMessage(
-                                content="你刚才没有输出任何内容。请继续完成任务：调用工具或给出最终答案。"
+                                content="You did not output any content. Please continue the task: invoke a tool or provide a final answer."
                             )
                         )
                         continue
-                    final_text = "模型连续返回空响应，未生成任何结果。"
+                    final_text = "Model returned empty responses consecutively. No results generated."
                     break
 
                 final_text = res_text
@@ -526,9 +526,9 @@ class SkillAgentTool(Tool):
                 except Exception:
                     has_files = False
                 if final_file_meta or has_files:
-                    final_text = "已生成文件。"
+                    final_text = "Files generated."
                 else:
-                    final_text = f"❌超过最大执行轮数 max_steps={max_steps}，仍未得到最终结果"
+                    final_text = f"❌Exceeded max execution steps max_steps={max_steps}. Final result not obtained."
         finally:
             temp_files_text = ""
             try:
@@ -574,20 +574,20 @@ class SkillAgentTool(Tool):
 
             assistant_text_for_history = ""
             if final_text and final_text.strip():
-                if not files_to_send and final_text.strip() == "已生成文件。":
-                    final_text = "已生成中间文件，但未调用 export_file 标记交付文件。"
+                if not files_to_send and final_text.strip() == "Files generated.":
+                    final_text = "Intermediate files generated, but export_file was not called to mark deliverable files."
                 assistant_text_for_history = final_text.strip()
                 if not final_text_already_streamed:
                     yield from stream_text_to_user(final_text)
             elif files_to_send:
-                assistant_text_for_history = "已生成文件。"
-                yield from stream_text_to_user("已生成文件。")
+                assistant_text_for_history = "Files generated."
+                yield from stream_text_to_user("Files generated.")
             elif has_any_files:
-                assistant_text_for_history = "已生成中间文件，但未调用 export_file 标记交付文件。"
-                yield from stream_text_to_user("已生成中间文件，但未调用 export_file 标记交付文件。")
+                assistant_text_for_history = "Intermediate files generated, but export_file was not called to mark deliverable files."
+                yield from stream_text_to_user("Intermediate files generated, but export_file was not called to mark deliverable files.")
             else:
-                assistant_text_for_history = "未生成任何文本或文件输出。"
-                yield from stream_text_to_user("未生成任何文本或文件输出。")
+                assistant_text_for_history = "No text or file output generated."
+                yield from stream_text_to_user("No text or file output generated.")
 
             yielded: set[str] = set()
             yielded_fingerprints: set[str] = set()
@@ -620,41 +620,41 @@ class SkillAgentTool(Tool):
         uploads_context: str,
     ) -> str:
         lines: list[str] = [
-            "你是一个使用 Skills 文件夹作为工具箱的通用 Agent。",
+            "You are a general-purpose Agent that uses the Skills folder as a toolbox.",
             "",
-            "[会话路径]",
+            "[Session Paths]",
             f"- session_dir: {session_dir}",
             f"- skills_root: {skills_root}",
             "",
-            "Skills 为特定任务提供专门的指令和工作流。",
-            "当任务匹配某个 skill 的描述时，使用 skill tool 加载它。",
-            "加载后按 skill 的说明执行任务。",
-            "只有调用 export_file 标记的文件才会作为最终交付文件返回给用户。",
+            "Skills provide specialized instructions and workflows for specific tasks.",
+            "When a task matches a skill's description, use the skill tool to load it.",
+            "After loading, execute the task according to the skill's instructions.",
+            "Only files marked with export_file will be returned to the user as final deliverables.",
             "",
             _fmt_skills_xml(skills_index),
             "",
-            "可用动作：",
-            "- skill(name): 加载指定 skill，返回 SKILL.md 内容和文件列表",
-            "- read_file(path, skill_name?, max_chars?): 读取文件。提供 skill_name 时读取 skill 目录内文件，否则读取 session 目录",
-            "- write_file(path, content): 在 session 目录写入文件",
-            "- bash(command, cwd?): 执行命令。cwd 可以是 'skill:<skill_name>'（在 skill 目录执行）或省略（在 session 目录执行）",
-            "- export_file(path): 标记 session 目录中的文件为最终交付物",
+            "Available actions:",
+            "- skill(name): Load a skill and return its SKILL.md content and file list",
+            "- read_file(path, skill_name?, max_chars?): Read a file. When skill_name is provided, read from the skill directory; otherwise read from the session directory",
+            "- write_file(path, content): Write a file in the session directory",
+            "- bash(command, cwd?): Execute a command. cwd can be 'skill:<skill_name>' (execute in skill directory) or omitted (execute in session directory). Environment reference: `python` and `curl` are available; `jq`, `cat`, `echo`, `grep`, `sed` may not be available",
+            "- export_file(path): Mark a file in the session directory as a final deliverable",
             uploads_context or "",
             "",
-            "【重要】工具调用规则：",
-            "1. 优先使用 function call（工具调用）发起动作。",
-            "2. 如果模型不支持 function call，允许输出如下 JSON 代码块作为备选：",
+            "[Important] Tool invocation rules:",
+            "1. Prefer using function call to initiate actions.",
+            "2. If the model does not support function call, you may output a JSON code block as fallback:",
             '   ```json',
             '   {"name": "<tool_name>", "arguments": {<args>}}',
             '   ```',
-            "3. 每次工具执行后，结果会以如下格式出现在后续的 user message 中：",
+            "3. After each tool execution, results will appear in subsequent user messages in the following format:",
             '   <tool_result id="<call_id>" name="<tool_name>" status="success|error">',
-            '   {...结果 JSON...}',
+            '   {...result JSON...}',
             '   </tool_result>',
-            "   请根据 tool_result 中的结果继续完成任务。",
-            "4. 执行命令时尽量一次获取完整输出，不要先过滤再补充。如果第一次命令失败或结果为空，再尝试其他方式。",
-            "5. 加载 skill 后，仔细阅读 SKILL.md 中的指令，并按其说明执行任务。skill 中的相对路径（如 scripts/、reference/）均相对于 skill 目录。",
-            "6. 不要重复执行相同或高度相似的工具调用。如果上一步已经获取了所需信息，直接利用该信息继续，不要重新获取。"
+            "   Continue the task based on the tool_result.",
+            "4. When executing commands, try to get complete output in one go. Do not filter first and supplement later. If the first command fails or returns empty, then try another approach.",
+            "5. After loading a skill, carefully read the instructions in SKILL.md and execute according to them. Relative paths in skills (e.g., scripts/, reference/) are relative to the skill directory.",
+            "6. Do not repeat the same or highly similar tool calls. If the previous step already obtained the needed information, use it directly and do not re-fetch."
         ]
         return "\n".join(lines)
 
