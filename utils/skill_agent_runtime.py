@@ -133,8 +133,11 @@ class _AgentRuntime:
                 text=True,
                 encoding="utf-8",
                 errors="ignore",
+                timeout=120,
             )
             return {"returncode": result.returncode, "stdout": result.stdout.strip(), "stderr": result.stderr.strip()}
+        except subprocess.TimeoutExpired:
+            return {"error": "subprocess_timeout", "timeout": 120}
         except Exception as e:
             return {"error": "subprocess_failed", "exception": str(e)}
 
@@ -159,8 +162,11 @@ class _AgentRuntime:
                 text=True,
                 encoding="utf-8",
                 errors="ignore",
+                timeout=120,
             )
             return {"returncode": result.returncode, "stdout": result.stdout.strip(), "stderr": result.stderr.strip()}
+        except subprocess.TimeoutExpired:
+            return {"error": "subprocess_timeout", "timeout": 120}
         except Exception as e:
             return {"error": "subprocess_failed", "exception": str(e)}
 

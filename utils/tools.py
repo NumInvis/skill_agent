@@ -296,8 +296,10 @@ def _parse_tool_call(tool_call: Any) -> tuple[str | None, str | None, dict[str, 
         return call_id, name, raw_args
     if not isinstance(raw_args, str):
         try:
-            print(
-                "[skill][debug] tool_call_arguments_invalid_type "
+            from utils.skill_agent_debug import _dbg
+
+            _dbg(
+                "tool_call_arguments_invalid_type "
                 + _shorten_text(
                     {
                         "id": call_id,
@@ -306,8 +308,7 @@ def _parse_tool_call(tool_call: Any) -> tuple[str | None, str | None, dict[str, 
                         "raw": raw_args,
                     },
                     400,
-                ),
-                flush=True,
+                )
             )
         except Exception:
             pass
@@ -317,8 +318,10 @@ def _parse_tool_call(tool_call: Any) -> tuple[str | None, str | None, dict[str, 
         return call_id, name, parsed if isinstance(parsed, dict) else {}
     except Exception as e:
         try:
-            print(
-                "[skill][debug] tool_call_arguments_json_parse_failed "
+            from utils.skill_agent_debug import _dbg
+
+            _dbg(
+                "tool_call_arguments_json_parse_failed "
                 + _shorten_text(
                     {
                         "id": call_id,
@@ -327,8 +330,7 @@ def _parse_tool_call(tool_call: Any) -> tuple[str | None, str | None, dict[str, 
                         "exception": str(e),
                     },
                     400,
-                ),
-                flush=True,
+                )
             )
         except Exception:
             pass

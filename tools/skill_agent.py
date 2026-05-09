@@ -1,6 +1,8 @@
-import re
 import json
 import os
+import re
+import shutil
+import time
 import uuid
 import base64
 import hashlib
@@ -40,6 +42,23 @@ from dify_plugin.entities.model.message import (
 from dify_plugin.entities.tool import ToolInvokeMessage
 
 
+def _cleanup_old_sessions(temp_root: str, max_age_hours: int = 24) -> None:
+    cutoff = time.time() - max_age_hours * 3600
+    try:
+        for entry in os.scandir(temp_root):
+            if not entry.is_dir():
+                continue
+            if not entry.name.startswith("dify-skill-"):
+                continue
+            try:
+                if entry.stat().st_mtime < cutoff:
+                    shutil.rmtree(entry.path)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 class SkillAgentTool(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage]:
         model = tool_parameters.get("model") or getattr(getattr(self, "session", None), "model", None) or {}
@@ -67,6 +86,8 @@ class SkillAgentTool(Tool):
         os.makedirs(temp_root, exist_ok=True)
         session_dir = os.path.join(temp_root, f"dify-skill-{uuid.uuid4().hex[:8]}-")
         os.makedirs(session_dir, exist_ok=True)
+
+        _cleanup_old_sessions(temp_root)
 
         file_items: list[Any] = []
         files_param = tool_parameters.get("files")
@@ -311,6 +332,7 @@ class SkillAgentTool(Tool):
                         yield from emit_typing(combined_text)
                     return combined_text, tool_calls_all, nontext_content, chunks_count, streamed_any
 
+                seen_tool_call_ids: set[str] = set()
                 for chunk in response:
                     chunks_count += 1
                     delta = _safe_get(chunk, "delta") or {}
@@ -318,7 +340,7 @@ class SkillAgentTool(Tool):
                     content = _safe_get(msg, "content")
                     tc = _safe_get(msg, "tool_calls") or []
 
-                    # Diagnostic log: print chunk structure (helps debug native function call issues)
+                    # print chunk structure (helps debug native function call issues)
                     if chunks_count <= 3 or (isinstance(tc, list) and tc):
                         chunk_type = type(chunk).__name__
                         delta_type = type(delta).__name__
@@ -334,7 +356,13 @@ class SkillAgentTool(Tool):
                     if parts:
                         nontext_content.extend(parts)
                     if isinstance(tc, list) and tc:
-                        tool_calls_all.extend(tc)
+                        for tcall in tc:
+                            cid = _safe_get(tcall, "id")
+                            if cid and cid in seen_tool_call_ids:
+                                continue
+                            if cid:
+                                seen_tool_call_ids.add(cid)
+                            tool_calls_all.append(tcall)
                         if not saw_tool_calls:
                             saw_tool_calls = True
                     if t:

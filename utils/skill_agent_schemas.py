@@ -194,11 +194,13 @@ def _build_tool_result_text(
         stdout = str(result.get("stdout") or "")
         stderr = str(result.get("stderr") or "")
         if stdout:
-            lines.append(f"<stdout_length>{len(stdout)} chars</stdout_length>")
+            orig_len = len(stdout)
+            shown = min(orig_len, 4000)
+            lines.append(f"<stdout_length total={orig_len} shown={shown}/>")
             lines.append("<stdout>")
-            lines.append(stdout[:4000])
-            if len(stdout) > 4000:
-                lines.append(f"... ({len(stdout) - 4000} more chars truncated)")
+            lines.append(stdout[:shown])
+            if orig_len > shown:
+                lines.append(f"\n... ({orig_len - shown} chars omitted, use read_file on saved file for full content)")
             lines.append("</stdout>")
         if stderr:
             lines.append("<stderr>")
